@@ -7,7 +7,8 @@
       "Bash(py --version)",
       "Bash(py \"C:\\\\Users\\\\IVAN\\\\AppData\\\\Roaming\\\\Claude\\\\local-agent-mode-sessions\\\\skills-plugin\\\\f9cdda93-f434-418e-b07c-46ade1878dc0\\\\1b24ceb3-0e9c-45a2-885a-b82835da5a61\\\\skills\\\\docx\\\\scripts\\\\office\\\\unpack.py\" PitRoad_GDD_v1.0.docx unpacked_gdd/)",
       "WebFetch(domain:docs.google.com)",
-      "WebFetch(domain:doc-04-70-docstext.googleusercontent.com)"
+      "WebFetch(domain:doc-04-70-docstext.googleusercontent.com)",
+      "Bash(gh auth *)"
     ]
   }
 }
