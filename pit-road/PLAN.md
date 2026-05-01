@@ -6,6 +6,11 @@
 - [x] Stack tecnológico definido (ver STACK.md)
 - [x] Proyecto Phaser inicializado
 - [x] Prototipo Fase 1 funcionando
+- [x] Refactor stats: 3 variables maestras (acceleration, topSpeed, handling) + trade-offs automáticos
+- [x] Crear `src/data/circuitos.json` — nota: circuito_alfa, paperclip oval 1360m, 60s a 100km/h promedio
+- [x] Tipos Circuito, Segmento, ModificadoresSegmento añadidos a types/index.ts
+- [x] SimuladorCarrera actualizado para usar modificadores por segmento y clima por circuito
+- [x] CarreraScene muestra sector activo en UI (S1–S4, nombre y velocidad punta)
 
 ---
 
@@ -26,29 +31,64 @@ la carrera genera tensión aunque sea automática, y el pit stop se siente como 
 ### Tareas
 
 #### 1.1 — Setup del proyecto
-- [x] Crear proyecto: template-vite-ts clonado y configurado
-- [x] Copiar CONTEXT.md, STACK.md y PLAN.md a la raíz del proyecto
-- [x] Verificar que `npm run build` compila sin errores
-- [x] Configurar Phaser con `pixelArt: true`, `zoom: 3`, resolución 320×180
+- [ ] Crear proyecto: `npm create @phaserjs/game@latest pit-road`
+- [ ] Copiar CONTEXT.md, STACK.md y PLAN.md a la raíz del proyecto
+- [ ] Verificar que `npm run dev` levanta el servidor sin errores
+- [ ] Configurar Phaser con `pixelArt: true`, `zoom: 3`, resolución 320×180
 
 #### 1.2 — Tipos e interfaces
-- [x] Crear `src/types/index.ts` con todas las interfaces del proyecto
+- [ ] Crear `src/types/index.ts` con todas las interfaces del proyecto
+  - `Pieza`, `StatsPieza`, `CategoriaPieza`, `RarezaPieza`
+  - `Carro`, `StatsCarro`
+  - `Rival`, `ArquetipoRival`
+  - `EstadoCarrera`, `ResultadoCarrera`
+  - `EstadoJuego`
 
 #### 1.3 — Datos de piezas
-- [x] Crear `src/data/piezas.json` con 18 piezas (3 por categoría: común/rara/épica)
+- [ ] Crear `src/data/piezas.json` con al menos 3 piezas por categoría (18 piezas mínimo)
+  - Cada categoría: 1 común, 1 rara, 1 épica
+  - Stats balanceados: ninguna pieza debe ser la mejor en todo
+  - Ejemplos de nombres: "Flat-6 artesanal", "Slick duras", "Suspensión reforzada"
 
 #### 1.4 — Sistema puro de simulación
-- [x] Crear `src/systems/SimuladorCarrera.ts` (sin imports de Phaser)
-- [x] Crear `src/systems/GeneradorRivales.ts` con 5 arquetipos del GDD
+- [ ] Crear `src/systems/SimuladorCarrera.ts` (sin imports de Phaser)
+  - `calcularStatsCarroTotal(piezas): StatsCarro`
+  - `simularVuelta(estadoCarro, rivales, clima): ResultadoVuelta`
+  - `aplicarPitStop(estadoCarrera): EstadoCarrera`
+  - `calcularPuntosFinales(posicion, vueltas): number`
+- [ ] Crear `src/systems/GeneradorRivales.ts`
+  - `generarRivales(cantidad, dificultad): Rival[]`
+  - Usar arquetipos del GDD con stats en rangos por arquetipo
+  - Piezas visibles: 3 de 6 en fase 1
 
 #### 1.5 — Escena Taller
-- [x] Crear `src/game/scenes/TallerScene.ts` — 6 slots, selector por categoría, stats en tiempo real, rareza con colores
+- [ ] Crear `src/scenes/TallerScene.ts`
+  - Grid de 6 slots de piezas (uno por categoría)
+  - Al hacer click en un slot, mostrar lista de piezas disponibles de esa categoría
+  - Mostrar stats resultantes del carro en tiempo real al equipar piezas
+  - Mostrar rareza con colores: gris (común), azul (rara), dorado (épica)
+  - Botón "IR A CARRERA" que pasa el estado del carro a CarreraScene
+  - Para fase 1: el jugador empieza con 2–3 piezas comunes equipadas por defecto
 
 #### 1.6 — Escena Carrera
-- [x] Crear `src/game/scenes/CarreraScene.ts` — 20 vueltas, barras de posición, pit stop en vuelta 10
+- [ ] Crear `src/scenes/CarreraScene.ts`
+  - Recibe el carro equipado desde TallerScene
+  - Genera 5 rivales al inicio con `GeneradorRivales`
+  - Simula 20 vueltas con delay de 1.5s entre vueltas (tiempo real, no instantáneo)
+  - Muestra representación visual simple: barras de posición de los 6 participantes
+  - Muestra métricas en tiempo real: vuelta actual, posición, desgaste llantas, calor motor
+  - A mitad de carrera (vuelta 10) el juego pregunta si quiere hacer pit stop:
+    - Si acepta: pausa simulación, restaura llantas, pierde 3 posiciones efectivas, reanuda
+    - Si rechaza: continúa con desgaste acumulado
+  - Al terminar las 20 vueltas: pasa resultado a ResultadosScene
 
 #### 1.7 — Escena Resultados
-- [x] Crear `src/game/scenes/ResultadosScene.ts` — posición, puntos, estado del carro, botón volver
+- [ ] Crear `src/scenes/ResultadosScene.ts`
+  - Mostrar posición final (1°–6°)
+  - Mostrar puntos obtenidos según tabla del GDD
+  - Mostrar estado del carro: cuánto daño recibió
+  - Botón "VOLVER AL TALLER" que reinicia el loop
+  - Para fase 1: no hay persistencia — cada vuelta al taller resetea el inventario
 
 ---
 
