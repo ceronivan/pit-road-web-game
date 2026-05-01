@@ -8,7 +8,18 @@
       "Bash(py \"C:\\\\Users\\\\IVAN\\\\AppData\\\\Roaming\\\\Claude\\\\local-agent-mode-sessions\\\\skills-plugin\\\\f9cdda93-f434-418e-b07c-46ade1878dc0\\\\1b24ceb3-0e9c-45a2-885a-b82835da5a61\\\\skills\\\\docx\\\\scripts\\\\office\\\\unpack.py\" PitRoad_GDD_v1.0.docx unpacked_gdd/)",
       "WebFetch(domain:docs.google.com)",
       "WebFetch(domain:doc-04-70-docstext.googleusercontent.com)",
-      "Bash(gh auth *)"
+      "Bash(gh auth *)",
+      "Bash(npm create *)",
+      "Bash(where node *)",
+      "Bash(cmd.exe /c \"where npm\")",
+      "Read(//c/Program Files/nodejs//**)",
+      "Read(//c/Users/IVAN/AppData/Roaming/**)",
+      "Bash(cmd.exe /c \"where node\")",
+      "Bash(export PATH=\"/c/Program Files/nodejs:$PATH\")",
+      "Bash(rm -rf \"D:/TRABAJOS/Ai Projects/Car Auto Project/project/pit-road/.git\")",
+      "Bash(npm install *)",
+      "Bash(cp \"D:/TRABAJOS/Ai Projects/Car Auto Project/docs/CONTEXT.md\" \"D:/TRABAJOS/Ai Projects/Car Auto Project/docs/PLAN.md\" \"D:/TRABAJOS/Ai Projects/Car Auto Project/docs/STACK.md\" \"D:/TRABAJOS/Ai Projects/Car Auto Project/project/pit-road/\")",
+      "Bash(npm run *)"
     ]
   }
 }

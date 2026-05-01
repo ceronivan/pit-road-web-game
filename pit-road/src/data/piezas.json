@@ -1,0 +1,140 @@
+[
+  {
+    "id": "motor_01",
+    "nombre": "Bloque en línea artesanal",
+    "categoria": "motor",
+    "rareza": "comun",
+    "stats": { "acceleration": 5, "topSpeed": 5 }
+  },
+  {
+    "id": "motor_02",
+    "nombre": "Flat-6 preparado",
+    "categoria": "motor",
+    "rareza": "rara",
+    "stats": { "acceleration": 7, "topSpeed": 6 },
+    "climaOptimo": "despejado"
+  },
+  {
+    "id": "motor_03",
+    "nombre": "V8 de competición",
+    "categoria": "motor",
+    "rareza": "epica",
+    "stats": { "acceleration": 9, "topSpeed": 8 },
+    "sinergias": ["transmision_03"]
+  },
+  {
+    "id": "suspension_01",
+    "nombre": "Resortes de fábrica",
+    "categoria": "suspension",
+    "rareza": "comun",
+    "stats": { "handling": 4, "acceleration": 2 }
+  },
+  {
+    "id": "suspension_02",
+    "nombre": "Amortiguadores reforzados",
+    "categoria": "suspension",
+    "rareza": "rara",
+    "stats": { "handling": 7, "acceleration": 3 },
+    "climaOptimo": "lluvia"
+  },
+  {
+    "id": "suspension_03",
+    "nombre": "Suspensión adaptativa forjada",
+    "categoria": "suspension",
+    "rareza": "epica",
+    "stats": { "handling": 9, "acceleration": 4 },
+    "sinergias": ["electronica_03"]
+  },
+  {
+    "id": "llantas_01",
+    "nombre": "Slick blandas",
+    "categoria": "llantas",
+    "rareza": "comun",
+    "stats": { "handling": 5, "acceleration": 4 },
+    "climaOptimo": "despejado"
+  },
+  {
+    "id": "llantas_02",
+    "nombre": "Intermedias ranuradas",
+    "categoria": "llantas",
+    "rareza": "rara",
+    "stats": { "handling": 6, "acceleration": 4, "topSpeed": 3 },
+    "climaOptimo": "lluvia"
+  },
+  {
+    "id": "llantas_03",
+    "nombre": "Studded nieve-asfalto",
+    "categoria": "llantas",
+    "rareza": "epica",
+    "stats": { "handling": 8, "acceleration": 5, "topSpeed": 3 },
+    "climaOptimo": "nieve"
+  },
+  {
+    "id": "transmision_01",
+    "nombre": "Caja manual 5 marchas",
+    "categoria": "transmision",
+    "rareza": "comun",
+    "stats": { "acceleration": 4, "topSpeed": 4 }
+  },
+  {
+    "id": "transmision_02",
+    "nombre": "Caja secuencial rally",
+    "categoria": "transmision",
+    "rareza": "rara",
+    "stats": { "acceleration": 6, "topSpeed": 5, "handling": 3 }
+  },
+  {
+    "id": "transmision_03",
+    "nombre": "PDK de competición",
+    "categoria": "transmision",
+    "rareza": "epica",
+    "stats": { "acceleration": 8, "topSpeed": 7, "handling": 3 },
+    "sinergias": ["motor_03"]
+  },
+  {
+    "id": "aerodinamica_01",
+    "nombre": "Alerón fijo básico",
+    "categoria": "aerodinamica",
+    "rareza": "comun",
+    "stats": { "topSpeed": 3, "handling": 4 }
+  },
+  {
+    "id": "aerodinamica_02",
+    "nombre": "Kit de carga descendente",
+    "categoria": "aerodinamica",
+    "rareza": "rara",
+    "stats": { "topSpeed": 4, "handling": 6 },
+    "climaOptimo": "lluvia"
+  },
+  {
+    "id": "aerodinamica_03",
+    "nombre": "Difusor activo forjado",
+    "categoria": "aerodinamica",
+    "rareza": "epica",
+    "stats": { "topSpeed": 6, "handling": 8 },
+    "sinergias": ["suspension_03"]
+  },
+  {
+    "id": "electronica_01",
+    "nombre": "ECU estándar",
+    "categoria": "electronica",
+    "rareza": "comun",
+    "stats": { "acceleration": 3, "topSpeed": 3, "handling": 3 }
+  },
+  {
+    "id": "electronica_02",
+    "nombre": "Control de tracción sport",
+    "categoria": "electronica",
+    "rareza": "rara",
+    "stats": { "handling": 5, "acceleration": 4, "topSpeed": 3 },
+    "climaOptimo": "nieve"
+  },
+  {
+    "id": "electronica_03",
+    "nombre": "Sistema integral de telemetría",
+    "categoria": "electronica",
+    "rareza": "epica",
+    "stats": { "handling": 6, "acceleration": 5, "topSpeed": 5 },
+    "sinergias": ["suspension_03"]
+  }
+]
