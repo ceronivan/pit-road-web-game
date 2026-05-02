@@ -1,13 +1,16 @@
-import { Scene, GameObjects, Time } from 'phaser';
+import { Scene, GameObjects } from 'phaser';
 import type { Carro, Circuito, EstadoCarrera, Rival, DatosCarreraScene, DatosResultadosScene } from '../../types';
 import { generarRivales } from '../../systems/GeneradorRivales';
-import { getCircuito, simularVuelta, aplicarPitStop, construirResultado } from '../../systems/SimuladorCarrera';
-import { CircuitoRenderer, SECTOR_COLOR, FRAC } from '../../ui/CircuitoRenderer';
+import { getCircuito, simularVuelta, construirResultado } from '../../systems/SimuladorCarrera';
+import { CircuitoRenderer, SECTOR_COLOR, FRAC, CX_L, CX_R, CY, R } from '../../ui/CircuitoRenderer';
 import { estilos, COLOR } from '../../utils/estilos';
 
-const VUELTAS_TOTALES  = 20;
-const DELAY_BASE_MS    = 8000;   // duración base de una vuelta en ms (a ×1)
-const VUELTA_PIT_STOP  = 10;
+const VUELTAS_TOTALES = 20;
+
+// Tiempo base para una vuelta a ×1 (ms).
+// Con velocidad variable real el tiempo exacto varía, pero este valor
+// define la "escala de referencia" para la animación.
+const DELAY_BASE_MS = 8000;
 
 // Opciones del fader de velocidad
 const SPEED_OPTS = [1, 2, 4, 8] as const;
@@ -17,7 +20,7 @@ type SpeedMult   = (typeof SPEED_OPTS)[number];
 const HEADER_H  = 44;
 const CARDS_Y   = 430;
 const CARDS_H   = 55;
-const METRICS_Y = 485;   // 485 + 55 = 540 ✓
+const METRICS_Y = 485;
 
 const CARD_PAD  = 16;
 const CARD_GAP  = 8;
@@ -25,11 +28,11 @@ const CARD_W    = Math.floor((960 - CARD_PAD * 2 - CARD_GAP * 3) / 4);  // 226
 
 const METRIC_W  = 192;  // 960 / 5
 
-// Fader de velocidad (en header)
-const SPD_W  = 42;   // ancho de cada botón
+// Fader de velocidad (en header, esquina derecha)
+const SPD_W  = 42;
 const SPD_H  = 26;
-const SPD_G  = 4;    // gap entre botones
-const SPD_X0 = 960 - CARD_PAD - SPEED_OPTS.length * (SPD_W + SPD_G) + SPD_G;  // 670
+const SPD_G  = 4;
+const SPD_X0 = 960 - CARD_PAD - SPEED_OPTS.length * (SPD_W + SPD_G) + SPD_G;  // ≈ 670
 const SPD_Y  = 9;
 
 const FONT = "'Open Sans', sans-serif";
@@ -39,16 +42,21 @@ export class CarreraScene extends Scene {
     private circuito!: Circuito;
     private rivales!:  Rival[];
     private estado!:   EstadoCarrera;
-    private timer!:    Time.TimerEvent;
-    private esperandoPitStop = false;
 
     private circuitoRenderer!: CircuitoRenderer;
     private progresoVehiculo  = 0;
     private sectorVisual      = 'S1';
 
-    // Velocidad de render
+    // Velocidad media del circuito (km/h ponderada por fracción de pista),
+    // usada para normalizar el factor de velocidad por sector.
+    private avgSectorSpeed!: number;
+
+    // Render speed multiplier (fader)
     private speedMult: SpeedMult = 1;
     private speedBtnBgs: GameObjects.Graphics[] = [];
+
+    // Flag para evitar múltiples llamadas a terminarCarrera
+    private juegoTerminado = false;
 
     // Header
     private txtVuelta!:   GameObjects.Text;
@@ -76,10 +84,15 @@ export class CarreraScene extends Scene {
 
     // ── Create ────────────────────────────────────────────────────────────────
     create() {
-        this.circuito = getCircuito('circuito_alfa');
-        this.rivales  = generarRivales(1, 1);   // solo 1 rival
-        this.estado   = this.crearEstadoInicial();
-        this.speedMult = 1;
+        this.circuito       = getCircuito('circuito_alfa');
+        this.rivales        = generarRivales(1, 1);
+        this.estado         = this.crearEstadoInicial();
+        this.speedMult      = 1;
+        this.juegoTerminado = false;
+        this.progresoVehiculo = 0;
+
+        // Precalcular velocidad media para normalizar el factor de velocidad
+        this.avgSectorSpeed = this.calcularVelocidadMedia();
 
         this.dibujarFondo();
         this.dibujarHeader();
@@ -87,28 +100,83 @@ export class CarreraScene extends Scene {
         this.crearSectorCards();
         this.crearMetricsStrip();
         this.actualizarUI();
-        this.iniciarTimer();
     }
 
-    // ── Update — animación suave, sector sigue posición real del carro ────────
+    // ── Update — animación con velocidad variable + conteo de vueltas ─────────
     update(_t: number, delta: number) {
-        if (!this.esperandoPitStop) {
-            this.progresoVehiculo =
-                (this.progresoVehiculo + delta * this.speedMult / DELAY_BASE_MS) % 1;
+        if (this.juegoTerminado) return;
+
+        // Avance del progreso usando factor de velocidad real del sector
+        const factor = this.factorVelocidad(this.progresoVehiculo);
+        this.progresoVehiculo += delta * this.speedMult * factor / DELAY_BASE_MS;
+
+        // Cruce de la línea de meta → nueva vuelta
+        if (this.progresoVehiculo >= 1) {
+            this.progresoVehiculo -= 1;
+            this.tickVuelta();
+            if (this.juegoTerminado) return;
         }
+
         this.circuitoRenderer.actualizarVehiculo(this.progresoVehiculo, this.estado.posicion);
 
-        // Sector activo según posición real en pista
-        const p    = this.progresoVehiculo;
-        const sec  = p < FRAC.s2 ? 'S1'
-                   : p < FRAC.s3 ? 'S2'
-                   : p < FRAC.s4 ? 'S3'
-                   :               'S4';
+        // Actualizar sector activo según posición real del carro en pista
+        const p   = this.progresoVehiculo;
+        const sec = p < FRAC.s2 ? 'S1'
+                  : p < FRAC.s3 ? 'S2'
+                  : p < FRAC.s4 ? 'S3'
+                  :               'S4';
         if (sec !== this.sectorVisual) {
             this.sectorVisual = sec;
             this.actualizarSectorCards(sec);
             this.circuitoRenderer.dibujarCircuito(sec);
         }
+    }
+
+    // ── Velocidad variable por sector ─────────────────────────────────────────
+    // Devuelve un factor (normalizado a velocidad media del circuito) que hace
+    // que el carro vaya más rápido en rectas y más lento en curvas.
+    // Usa interpolación coseno en las zonas de transición (20% del sector).
+    private calcularVelocidadMedia(): number {
+        const fracs = [FRAC.s2, FRAC.s3 - FRAC.s2, FRAC.s4 - FRAC.s3, 1 - FRAC.s4];
+        return this.circuito.sectores.reduce(
+            (sum, seg, i) => sum + seg.velocidadPuntaKmh * fracs[i],
+            0,
+        );
+    }
+
+    private factorVelocidad(t: number): number {
+        const avg  = this.avgSectorSpeed;
+        const v    = this.circuito.sectores.map(s => s.velocidadPuntaKmh);
+        const b    = [0, FRAC.s2, FRAC.s3, FRAC.s4, 1] as const;
+        const BLEND = 0.22;  // 22% del sector para transición suave
+
+        // Sector actual
+        let si = 3;
+        if (t < FRAC.s2) si = 0;
+        else if (t < FRAC.s3) si = 1;
+        else if (t < FRAC.s4) si = 2;
+
+        const sLen  = b[si + 1] - b[si];
+        const posIn = (t - b[si]) / sLen;  // 0–1 dentro del sector
+
+        const vCur  = v[si];
+        const vPrev = v[(si + 3) % 4];
+        const vNext = v[(si + 1) % 4];
+
+        let speed: number;
+        if (posIn < BLEND) {
+            // Aceleración: interpolación coseno desde velocidad del sector anterior
+            const k = posIn / BLEND;
+            speed = vPrev + (vCur - vPrev) * (0.5 - 0.5 * Math.cos(k * Math.PI));
+        } else if (posIn > 1 - BLEND) {
+            // Frenada: interpolación coseno hacia velocidad del siguiente sector
+            const k = (posIn - (1 - BLEND)) / BLEND;
+            speed = vCur + (vNext - vCur) * (0.5 - 0.5 * Math.cos(k * Math.PI));
+        } else {
+            speed = vCur;
+        }
+
+        return speed / avg;
     }
 
     // ── Fondo ─────────────────────────────────────────────────────────────────
@@ -140,7 +208,6 @@ export class CarreraScene extends Scene {
 
         this.txtVuelta = this.add.text(400, 13, '', estilos.normal).setOrigin(0.5, 0);
 
-        // Fader de velocidad en header (derecha)
         this.crearSpeedFader();
 
         this.txtPosicion = this.add.text(944, 13, '', {
@@ -150,7 +217,6 @@ export class CarreraScene extends Scene {
 
     // ── Fader de velocidad ────────────────────────────────────────────────────
     private crearSpeedFader() {
-        // Etiqueta
         this.add.text(SPD_X0 - 8, SPD_Y + 6, 'VEL', {
             fontSize: '10px', fontFamily: FONT, color: '#4a7898',
         }).setOrigin(1, 0);
@@ -160,7 +226,6 @@ export class CarreraScene extends Scene {
             const bg = this.add.graphics();
             this.speedBtnBgs.push(bg);
 
-            // Texto del botón (encima del fondo)
             this.add.text(x + SPD_W / 2, SPD_Y + 6, `${speed}×`, {
                 fontSize: '11px', fontFamily: FONT, color: '#d0e8ff', fontStyle: 'bold',
             }).setOrigin(0.5, 0);
@@ -203,23 +268,10 @@ export class CarreraScene extends Scene {
         SPEED_OPTS.forEach((_, i) => this.dibujarSpeedBtn(i, false));
     }
 
+    // El fader solo modifica speedMult; el update() lo usa directamente.
     private setSpeed(mult: SpeedMult) {
         this.speedMult = mult;
         this.refrescarSpeedFader();
-        // Reinicia timer si la carrera está activa (no en pit stop)
-        if (!this.esperandoPitStop) {
-            this.iniciarTimer();
-        }
-    }
-
-    private iniciarTimer() {
-        this.timer?.remove();
-        this.timer = this.time.addEvent({
-            delay:         Math.round(DELAY_BASE_MS / this.speedMult),
-            callback:      this.tickVuelta,
-            callbackScope: this,
-            loop:          true,
-        });
     }
 
     // ── Circuito ──────────────────────────────────────────────────────────────
@@ -228,10 +280,10 @@ export class CarreraScene extends Scene {
         this.circuitoRenderer.dibujarCircuito('S1');
 
         const segs     = this.circuito.sectores;
-        const CX_L     = 168, CX_R = 792, CY = 228, R = 148;
         const cx       = (CX_L + CX_R) / 2;
         const lblStyle = { fontSize: '11px', fontFamily: FONT, color: '#4a7898' };
 
+        // Etiquetas de velocidad máxima por sector
         this.add.text(cx,         CY + R + 8,  `${segs[0].velocidadPuntaKmh} km/h`, lblStyle).setOrigin(0.5, 0);
         this.add.text(cx,         CY - R - 22, `${segs[2].velocidadPuntaKmh} km/h`, lblStyle).setOrigin(0.5, 0);
         this.add.text(CX_R - 68, CY - 9, `${segs[1].velocidadPuntaKmh} km/h`, lblStyle);
@@ -272,8 +324,9 @@ export class CarreraScene extends Scene {
 
     // ── Métricas ──────────────────────────────────────────────────────────────
     private crearMetricsStrip() {
-        const labels = ['POSICIÓN', 'VUELTA', 'LLANTAS', 'TEMPERATURA', 'COMBUSTIBLE'];
-        const hasBar  = [false, false, true, true, true];
+        // Combustible y durabilidad desactivados → solo 3 métricas de estado del carro
+        const labels = ['POSICIÓN', 'VUELTA', 'LLANTAS', 'TEMPERATURA', 'VEL. ACTUAL'];
+        const hasBar  = [false, false, true, true, false];
 
         const sep = this.add.graphics();
         sep.lineStyle(1, COLOR.CARD_BORDER, 0.35);
@@ -303,11 +356,11 @@ export class CarreraScene extends Scene {
         return {
             vueltaActual:      0,
             vueltasTotales:    VUELTAS_TOTALES,
-            posicion:          2,    // 2 coches en total → arranca en P2
+            posicion:          2,    // 2 coches en total
             desgasteLlantas:   0,
             calorMotor:        20,
-            combustible:       100,
-            durabilidadActual: 100,
+            combustible:       100,  // no se consume (desactivado)
+            durabilidadActual: 100,  // no se degrada (desactivado)
             clima:             'despejado',
             enPitStop:         false,
         };
@@ -324,17 +377,19 @@ export class CarreraScene extends Scene {
 
         const tiresColor = e.desgasteLlantas > 70 ? '#ff4455' : e.desgasteLlantas > 40 ? '#ffcc00' : '#4cdf80';
         const heatColor  = e.calorMotor > 80      ? '#ff4455' : e.calorMotor > 60      ? '#ffcc00' : '#4cdf80';
-        const combColor  = e.combustible < 20     ? '#ff4455' : e.combustible < 40     ? '#ffcc00' : '#4cdf80';
+
+        // Velocidad actual (km/h) basada en la posición del carro en pista
+        const spdKmh = Math.round(this.factorVelocidad(this.progresoVehiculo) * this.avgSectorSpeed);
 
         this.metricTexts[0].setText(`P${e.posicion}`).setColor(posColor);
         this.metricTexts[1].setText(`${e.vueltaActual} / ${e.vueltasTotales}`).setColor('#d0e8ff');
         this.metricTexts[2].setText(`${Math.round(e.desgasteLlantas)}%`).setColor(tiresColor);
         this.metricTexts[3].setText(`${Math.round(e.calorMotor)}%`).setColor(heatColor);
-        this.metricTexts[4].setText(`${Math.round(e.combustible)}%`).setColor(combColor);
+        this.metricTexts[4].setText(`${spdKmh} km/h`).setColor('#7ab8e8');
 
+        // Barras de estado (índice 0 = llantas, 1 = calor)
         this.actualizarBarra(0, (100 - e.desgasteLlantas) / 100, 0x28b878);
         this.actualizarBarra(1, 1 - Math.min(1, e.calorMotor / 100), 0x8050e0);
-        this.actualizarBarra(2, e.combustible / 100, 0xe05828);
     }
 
     private actualizarBarra(barIdx: number, pct: number, colorBien: number) {
@@ -380,110 +435,33 @@ export class CarreraScene extends Scene {
         });
     }
 
-    // ── Simulación ────────────────────────────────────────────────────────────
+    // ── Tick de vuelta (llamado desde update cuando progreso cruza 1.0) ────────
+    // Pit stop desactivado temporalmente.
+    // Combustible y durabilidad no se usan para terminar la carrera.
     private tickVuelta() {
-        if (this.esperandoPitStop) return;
         this.estado.vueltaActual++;
 
-        if (this.estado.vueltaActual === VUELTA_PIT_STOP) {
-            this.timer?.remove();
-            this.mostrarPromptPitStop();
-            return;
-        }
-
         const res = simularVuelta(this.estado, this.carro.stats, this.rivales, this.circuito);
+
+        // Solo aplicamos posición y desgastes; combustible/durabilidad ignorados
         this.estado = {
             ...this.estado,
-            posicion:          res.posicion,
-            desgasteLlantas:   res.desgasteLlantas,
-            calorMotor:        res.calorMotor,
-            combustible:       res.combustible,
-            durabilidadActual: res.durabilidadActual,
+            posicion:        res.posicion,
+            desgasteLlantas: res.desgasteLlantas,
+            calorMotor:      res.calorMotor,
+            // combustible y durabilidadActual se mantienen fijos
         };
 
         this.actualizarUI();
 
-        if (this.estado.vueltaActual >= VUELTAS_TOTALES ||
-            this.estado.combustible   <= 0 ||
-            this.estado.durabilidadActual <= 0) {
+        if (this.estado.vueltaActual >= VUELTAS_TOTALES) {
             this.terminarCarrera();
         }
     }
 
-    // ── Pit stop ──────────────────────────────────────────────────────────────
-    private mostrarPromptPitStop() {
-        this.esperandoPitStop = true;
-
-        const PX = 80, PY = 150, PW = 800, PH = 180;
-        const c  = this.add.container(0, 0);
-
-        const g = this.add.graphics();
-        g.fillStyle(0x04090f, 0.96);
-        g.fillRoundedRect(PX, PY, PW, PH, 10);
-        g.lineStyle(2, COLOR.SECTOR_S2, 0.75);
-        g.strokeRoundedRect(PX + 1, PY + 1, PW - 2, PH - 2, 10);
-        c.add(g);
-
-        c.add(this.add.text(PX + 28, PY + 22, 'PIT STOP — Vuelta 10/20', estilos.titulo));
-        c.add(this.add.text(PX + 28, PY + 52,
-            'Llantas nuevas y combustible completo. Perderás posición temporalmente.',
-            estilos.normal));
-
-        const BW = 344, BH = 52, BY = PY + PH - 70, BX2 = PX + 28 + BW + 24;
-
-        // Botón SÍ
-        const btnYesBg = this.add.graphics();
-        btnYesBg.fillStyle(COLOR.BTN_GREEN, 1);
-        btnYesBg.fillRoundedRect(PX + 28, BY, BW, BH, 6);
-
-        const btnYes = this.add.zone(PX + 28, BY, BW, BH)
-            .setOrigin(0, 0).setInteractive({ useHandCursor: true });
-        btnYes.on('pointerdown', () => {
-            this.estado = aplicarPitStop(this.estado);
-            this.actualizarUI();
-            this.cerrarPitStop(c, btnYesBg, btnNoBg);
-        });
-        btnYes.on('pointerover', () => { btnYesBg.clear(); btnYesBg.fillStyle(COLOR.BTN_GREEN_H, 1); btnYesBg.fillRoundedRect(PX + 28, BY, BW, BH, 6); });
-        btnYes.on('pointerout',  () => { btnYesBg.clear(); btnYesBg.fillStyle(COLOR.BTN_GREEN,   1); btnYesBg.fillRoundedRect(PX + 28, BY, BW, BH, 6); });
-        c.add(btnYesBg);
-        c.add(this.add.text(PX + 28 + BW / 2, BY + 15, 'ENTRAR AL PIT', {
-            fontSize: '15px', fontFamily: FONT, color: '#4cdf80', fontStyle: 'bold',
-        }).setOrigin(0.5, 0));
-        c.add(btnYes);
-
-        // Botón NO
-        const btnNoBg = this.add.graphics();
-        btnNoBg.fillStyle(COLOR.BTN_RED, 1);
-        btnNoBg.fillRoundedRect(BX2, BY, BW, BH, 6);
-
-        const btnNo = this.add.zone(BX2, BY, BW, BH)
-            .setOrigin(0, 0).setInteractive({ useHandCursor: true });
-        btnNo.on('pointerdown', () => this.cerrarPitStop(c, btnYesBg, btnNoBg));
-        btnNo.on('pointerover', () => { btnNoBg.clear(); btnNoBg.fillStyle(COLOR.BTN_RED_H, 1); btnNoBg.fillRoundedRect(BX2, BY, BW, BH, 6); });
-        btnNo.on('pointerout',  () => { btnNoBg.clear(); btnNoBg.fillStyle(COLOR.BTN_RED,   1); btnNoBg.fillRoundedRect(BX2, BY, BW, BH, 6); });
-        c.add(btnNoBg);
-        c.add(this.add.text(BX2 + BW / 2, BY + 15, 'SEGUIR EN PISTA', {
-            fontSize: '15px', fontFamily: FONT, color: '#ff8888', fontStyle: 'bold',
-        }).setOrigin(0.5, 0));
-        c.add(btnNo);
-    }
-
-    private cerrarPitStop(
-        container: GameObjects.Container,
-        bg1: GameObjects.Graphics,
-        bg2: GameObjects.Graphics,
-    ) {
-        bg1.destroy();
-        bg2.destroy();
-        container.destroy();
-        this.esperandoPitStop = false;
-        // Reinicia timer con la velocidad actual (puede haber cambiado durante el pit stop)
-        this.iniciarTimer();
-    }
-
     // ── Fin de carrera ────────────────────────────────────────────────────────
     private terminarCarrera() {
-        this.timer?.remove();
+        this.juegoTerminado = true;
         const resultado = construirResultado(this.estado);
         const datos: DatosResultadosScene = { resultado, estadoCarrera: this.estado };
         this.time.delayedCall(1200, () => this.scene.start('ResultadosScene', datos));
