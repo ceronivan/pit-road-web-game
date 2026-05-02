@@ -8,8 +8,7 @@ import { estilos, COLOR } from '../../utils/estilos';
 const VUELTAS_TOTALES = 20;
 
 // Tiempo base para una vuelta a ×1 (ms).
-// Con velocidad variable real el tiempo exacto varía, pero este valor
-// define la "escala de referencia" para la animación.
+// La velocidad real varía por sector, este valor da la escala de referencia.
 const DELAY_BASE_MS = 8000;
 
 // Opciones del fader de velocidad
@@ -18,6 +17,11 @@ type SpeedMult   = (typeof SPEED_OPTS)[number];
 
 // Standing-start: rampa de aceleración en los primeros N ms reales
 const STARTUP_MS = 3200;
+
+// Distancias de seguridad entre carros (fracción del circuito)
+// ≈ 48 m → empieza el freno de proximidad; ≈ 16 m → freno máximo
+const PROX_GAP   = 0.035;
+const SAFETY_GAP = 0.012;
 
 // ── Layout (960×540) ──────────────────────────────────────────────────────────
 const HEADER_H  = 44;
@@ -29,13 +33,13 @@ const CARD_PAD  = 16;
 const CARD_GAP  = 8;
 const CARD_W    = Math.floor((960 - CARD_PAD * 2 - CARD_GAP * 3) / 4);  // 226
 
-const METRIC_W  = 192;  // 960 / 5
+const METRIC_W  = 192;
 
-// Fader de velocidad (en header, esquina derecha)
+// Fader de velocidad (header, esquina derecha)
 const SPD_W  = 42;
 const SPD_H  = 26;
 const SPD_G  = 4;
-const SPD_X0 = 960 - CARD_PAD - SPEED_OPTS.length * (SPD_W + SPD_G) + SPD_G;  // ≈ 670
+const SPD_X0 = 960 - CARD_PAD - SPEED_OPTS.length * (SPD_W + SPD_G) + SPD_G;
 const SPD_Y  = 9;
 
 const FONT = "'Open Sans', sans-serif";
@@ -48,37 +52,30 @@ export class CarreraScene extends Scene {
 
     private circuitoRenderer!: CircuitoRenderer;
 
-    // Progreso en pista del jugador y del rival (0–1, cruzar 1 = nueva vuelta)
     private progresoVehiculo = 0;
     private rivalProgress    = 0;
 
-    // Sector visual activo
     private sectorVisual = 'S1';
 
-    // Startup: real-ms transcurridos desde el inicio (solo vuelta 0)
+    // Startup: ms reales desde el inicio (solo vuelta 0)
     private startupTimer = 0;
 
-    // Velocidad media del circuito (km/h ponderada por fracción de pista)
+    // Velocidad media del circuito (km/h) para normalización del factor
     private avgSectorSpeed!: number;
 
-    // Render speed multiplier (fader)
     private speedMult: SpeedMult = 1;
     private speedBtnBgs: GameObjects.Graphics[] = [];
 
-    // Flag para evitar múltiples llamadas a terminarCarrera
     private juegoTerminado = false;
 
-    // Header
     private txtVuelta!:   GameObjects.Text;
     private txtPosicion!: GameObjects.Text;
 
-    // Sector cards
     private sectorCardBg:    GameObjects.Graphics[] = [];
     private sectorCardTxt:   GameObjects.Text[]     = [];
     private sectorCardSpeed: GameObjects.Text[]     = [];
     private sectorCardName:  GameObjects.Text[]     = [];
 
-    // Metrics strip
     private metricBars:  GameObjects.Graphics[] = [];
     private metricTexts: GameObjects.Text[]     = [];
 
@@ -111,7 +108,7 @@ export class CarreraScene extends Scene {
         this.metricTexts      = [];
         this.sectorVisual     = 'S1';
 
-        // Velocidad media para normalizar el factor de velocidad por sector
+        // Velocidad media real del circuito (integración numérica del perfil)
         this.avgSectorSpeed = this.calcularVelocidadMedia();
 
         this.dibujarFondo();
@@ -126,16 +123,33 @@ export class CarreraScene extends Scene {
     update(_t: number, delta: number) {
         if (this.juegoTerminado) return;
 
-        // ── Standing-start ramp (solo en vuelta 0) ────────────────────────────
-        if (this.estado.vueltaActual === 0) {
-            this.startupTimer += delta;       // ms reales, no escala con speedMult
-        }
+        // ── Standing-start ramp ───────────────────────────────────────────────
+        if (this.estado.vueltaActual === 0) this.startupTimer += delta;
         const startupFactor = this.estado.vueltaActual === 0
             ? Math.min(1, this.startupTimer / STARTUP_MS)
             : 1.0;
 
+        // ── Gap entre carros (signed: + = rival adelante, - = jugador adelante)
+        const rawGap    = (this.rivalProgress - this.progresoVehiculo + 1) % 1;
+        const gapSigned = rawGap > 0.5 ? rawGap - 1 : rawGap;
+
+        // ── Freno de proximidad (defensa / siguiendo al carro de adelante) ────
+        // Simula el comportamiento de la imagen del Traction Circle: el carro de
+        // atrás frena para guardar distancia y no chocar con el de adelante.
+        const absGap = Math.abs(gapSigned);
+        let playerProxFactor = 1.0;
+        let rivalProxFactor  = 1.0;
+
+        if (absGap > 0.001 && absGap < PROX_GAP) {
+            // intensity: 0 en PROX_GAP, 1 en SAFETY_GAP (y más acá)
+            const intensity = Math.max(0, 1 - (absGap - SAFETY_GAP) / (PROX_GAP - SAFETY_GAP));
+            const brakeF    = Math.max(0.50, 1 - intensity * 0.50);  // mín 50% de vel.
+            if (gapSigned > 0) playerProxFactor = brakeF;  // jugador sigue al rival
+            else                rivalProxFactor  = brakeF;  // rival sigue al jugador
+        }
+
         // ── Progreso del jugador ──────────────────────────────────────────────
-        const playerFactor = this.factorVelocidad(this.progresoVehiculo) * startupFactor;
+        const playerFactor = this.factorVelocidad(this.progresoVehiculo) * startupFactor * playerProxFactor;
         this.progresoVehiculo += delta * this.speedMult * playerFactor / DELAY_BASE_MS;
 
         // Cruce de la línea de meta → nueva vuelta
@@ -145,22 +159,17 @@ export class CarreraScene extends Scene {
             if (this.juegoTerminado) return;
         }
 
-        // ── Progreso del rival (rubber-band) ──────────────────────────────────
-        // gapSigned > 0 → rival adelante; < 0 → rival atrás
-        const rawGap    = (this.rivalProgress - this.progresoVehiculo + 1) % 1;
-        const gapSigned = rawGap > 0.5 ? rawGap - 1 : rawGap;
-
-        // El rival apunta a ~4 % de adelanto si player va 2° o 4 % de retraso si va 1°
+        // ── Progreso del rival (rubber-band + freno de proximidad) ────────────
         const targetGap  = this.estado.posicion === 2 ? 0.04 : -0.04;
         const correction = (targetGap - gapSigned) * 0.3;
-
-        const rivalFactor = this.factorVelocidad(this.rivalProgress) * (1 + correction) * startupFactor;
+        const rivalFactor = this.factorVelocidad(this.rivalProgress)
+            * (1 + correction) * startupFactor * rivalProxFactor;
         this.rivalProgress = (this.rivalProgress + delta * this.speedMult * rivalFactor / DELAY_BASE_MS + 1) % 1;
 
-        // ── Render vehiculos con línea de carrera ─────────────────────────────
+        // ── Render ────────────────────────────────────────────────────────────
         this.circuitoRenderer.actualizarVehiculo(this.progresoVehiculo, this.rivalProgress);
 
-        // ── Sector activo por posición real del jugador ───────────────────────
+        // Sector activo según posición real del jugador
         const p   = this.progresoVehiculo;
         const sec = p < FRAC.s2 ? 'S1'
                   : p < FRAC.s3 ? 'S2'
@@ -173,9 +182,13 @@ export class CarreraScene extends Scene {
         }
 
         // ── Métricas en tiempo real ───────────────────────────────────────────
-        // Velocidad actual del jugador (km/h)
-        const spdKmh = Math.round(playerFactor * this.avgSectorSpeed);
-        this.metricTexts[4].setText(`${spdKmh} km/h`).setColor('#7ab8e8');
+        // Velocidad actual en km/h (la función ya devuelve km/h directamente)
+        const spdKmh = Math.round(
+            this.velocidadInstantanea(this.progresoVehiculo) * startupFactor * playerProxFactor
+        );
+        this.metricTexts[4].setText(`${spdKmh} km/h`).setColor(
+            spdKmh < 85 ? '#e0a030' : spdKmh > 110 ? '#4cdf80' : '#7ab8e8'
+        );
 
         // Distancia al rival en metros
         const gapM    = Math.round(gapSigned * this.circuito.longitudMetros);
@@ -189,50 +202,78 @@ export class CarreraScene extends Scene {
         this.metricTexts[3].setText(gapText).setColor(gapColor);
     }
 
-    // ── Velocidad media ponderada por longitud de sector ──────────────────────
-    private calcularVelocidadMedia(): number {
-        const fracs = [FRAC.s2, FRAC.s3 - FRAC.s2, FRAC.s4 - FRAC.s3, 1 - FRAC.s4];
-        return this.circuito.sectores.reduce(
-            (sum, seg, i) => sum + seg.velocidadPuntaKmh * fracs[i],
-            0,
-        );
-    }
-
-    // ── Factor de velocidad por sector (+ transiciones suaves coseno) ─────────
-    // Devuelve un factor relativo a avgSectorSpeed:
-    //   > 1 en rectas, < 1 en curvas, interpolado en zonas de transición.
-    private factorVelocidad(t: number): number {
-        const avg   = this.avgSectorSpeed;
-        const v     = this.circuito.sectores.map(s => s.velocidadPuntaKmh);
-        const b     = [0, FRAC.s2, FRAC.s3, FRAC.s4, 1] as const;
-        const BLEND = 0.22;  // 22 % del sector para frenada/aceleración
+    // ── Velocidad instantánea (km/h) basada en el perfil del Traction Circle ──
+    //
+    // RECTA (straight):
+    //   0  → FA : aceleración progresiva tras salir de curva   (unwinding)
+    //   FA → FB : velocidad punta máxima
+    //   FB → 1  : frenada abrupta hacia la próxima curva       (pure braking)
+    //
+    // CURVA (curve):
+    //   0  → F1 : trail braking (frenada combinada con giro)
+    //   F1 → F2 : apex / velocidad mínima                      (pure cornering)
+    //   F2 → 1  : unwinding + aceleración progresiva           (combined accel+cornering)
+    //
+    // Las fracciones reflejan la asimetría real:
+    //   - Frenada: breve (conductor puede usar todo el límite de frenada)
+    //   - Aceleración: larga (limitada por la fuerza lateral aún en juego)
+    //
+    // Para circuitos con curvas más cerradas (anguloDeg > 180, radioMetros < 60)
+    // basta con ajustar velocidadMinimaKmh en el JSON del circuito.
+    private velocidadInstantanea(t: number): number {
+        const b   = [0, FRAC.s2, FRAC.s3, FRAC.s4, 1] as const;
 
         let si = 3;
-        if (t < FRAC.s2) si = 0;
+        if      (t < FRAC.s2) si = 0;
         else if (t < FRAC.s3) si = 1;
         else if (t < FRAC.s4) si = 2;
 
         const sLen  = b[si + 1] - b[si];
-        const posIn = (t - b[si]) / sLen;  // 0–1 dentro del sector
+        const posIn = (t - b[si]) / sLen;       // 0–1 dentro del sector
 
-        const vCur  = v[si];
-        const vPrev = v[(si + 3) % 4];
-        const vNext = v[(si + 1) % 4];
+        const seg     = this.circuito.sectores[si];
+        const vEntry  = seg.velocidadEntradaKmh;
+        const vExit   = seg.velocidadSalidaKmh;
+        const isCurve = seg.tipo === 'curva';
 
-        let speed: number;
-        if (posIn < BLEND) {
-            // Aceleración desde velocidad del sector anterior
-            const k = posIn / BLEND;
-            speed = vPrev + (vCur - vPrev) * (0.5 - 0.5 * Math.cos(k * Math.PI));
-        } else if (posIn > 1 - BLEND) {
-            // Frenada hacia velocidad del siguiente sector
-            const k = (posIn - (1 - BLEND)) / BLEND;
-            speed = vCur + (vNext - vCur) * (0.5 - 0.5 * Math.cos(k * Math.PI));
+        // Para curvas: apex = velocidad mínima (ej. 70 km/h)
+        // Para rectas: apex = velocidad punta (ej. 120 km/h)
+        const vPeak = isCurve
+            ? (seg.velocidadMinimaKmh ?? Math.round(seg.velocidadPuntaKmh * 0.875))
+            : seg.velocidadPuntaKmh;
+
+        // Cosine ease (suave inicio y fin)
+        const ease = (k: number) => 0.5 - 0.5 * Math.cos(Math.min(1, Math.max(0, k)) * Math.PI);
+
+        if (isCurve) {
+            const F1 = 0.20;   // fin de trail braking
+            const F2 = 0.35;   // fin de apex → inicio de aceleración
+            if      (posIn < F1) return vEntry + (vPeak - vEntry) * ease(posIn / F1);
+            else if (posIn < F2) return vPeak;
+            else                 return vPeak  + (vExit - vPeak)  * ease((posIn - F2) / (1 - F2));
         } else {
-            speed = vCur;
+            const FA = 0.38;   // aceleración termina (empieza zona de velocidad punta)
+            const FB = 0.65;   // frenada empieza (35% de la recta)
+            if      (posIn < FA) return vEntry + (vPeak - vEntry) * ease(posIn / FA);
+            else if (posIn < FB) return vPeak;
+            else                 return vPeak  + (vExit - vPeak)  * ease((posIn - FB) / (1 - FB));
         }
+    }
 
-        return speed / avg;
+    // ── Factor de velocidad normalizado (0.x – 1.x) ──────────────────────────
+    private factorVelocidad(t: number): number {
+        return this.velocidadInstantanea(t) / this.avgSectorSpeed;
+    }
+
+    // ── Velocidad media real (integración numérica del perfil) ────────────────
+    // Garantiza que el factor promedio ≈ 1, manteniendo DELAY_BASE_MS exacto.
+    private calcularVelocidadMedia(): number {
+        const N = 400;
+        let sum = 0;
+        for (let i = 0; i < N; i++) {
+            sum += this.velocidadInstantanea((i + 0.5) / N);
+        }
+        return sum / N;
     }
 
     // ── Fondo ─────────────────────────────────────────────────────────────────
@@ -261,11 +302,8 @@ export class CarreraScene extends Scene {
         g.lineBetween(0, HEADER_H, 960, HEADER_H);
 
         this.add.text(16, 13, this.circuito.nombre.toUpperCase(), estilos.subtitulo);
-
         this.txtVuelta = this.add.text(400, 13, '', estilos.normal).setOrigin(0.5, 0);
-
         this.crearSpeedFader();
-
         this.txtPosicion = this.add.text(944, 13, '', {
             fontSize: '18px', fontFamily: FONT, color: '#ffcc00', fontStyle: 'bold',
         }).setOrigin(1, 0);
@@ -340,8 +378,8 @@ export class CarreraScene extends Scene {
 
         this.add.text(cx,         CY + R + 10, `${segs[0].velocidadPuntaKmh} km/h`, lblStyle).setOrigin(0.5, 0);
         this.add.text(cx,         CY - R - 24, `${segs[2].velocidadPuntaKmh} km/h`, lblStyle).setOrigin(0.5, 0);
-        this.add.text(CX_R - 68, CY - 9, `${segs[1].velocidadPuntaKmh} km/h`, lblStyle);
-        this.add.text(CX_L + 10, CY - 9, `${segs[3].velocidadPuntaKmh} km/h`, lblStyle);
+        this.add.text(CX_R - 68, CY - 9, `${segs[1].velocidadMinimaKmh ?? segs[1].velocidadPuntaKmh} km/h`, lblStyle);
+        this.add.text(CX_L + 10, CY - 9, `${segs[3].velocidadMinimaKmh ?? segs[3].velocidadPuntaKmh} km/h`, lblStyle);
     }
 
     // ── Sector cards ──────────────────────────────────────────────────────────
@@ -377,11 +415,9 @@ export class CarreraScene extends Scene {
     }
 
     // ── Métricas strip ────────────────────────────────────────────────────────
-    // Motor desactivado → solo llantas con barra.
-    // Velocidad y distancia al rival se actualizan en update() cada frame.
     private crearMetricsStrip() {
         const labels = ['POSICIÓN', 'VUELTA', 'LLANTAS', 'DIST. RIVAL', 'VEL. ACTUAL'];
-        const hasBar  = [false, false, true, false, false];  // solo barra de llantas
+        const hasBar  = [false, false, true, false, false];
 
         const sep = this.add.graphics();
         sep.lineStyle(1, COLOR.CARD_BORDER, 0.35);
@@ -411,7 +447,7 @@ export class CarreraScene extends Scene {
         return {
             vueltaActual:      0,
             vueltasTotales:    VUELTAS_TOTALES,
-            posicion:          2,    // 1 rival, player empieza 2°
+            posicion:          2,
             desgasteLlantas:   0,
             calorMotor:        20,   // fijo — motor desactivado
             combustible:       100,  // fijo — combustible desactivado
@@ -422,7 +458,6 @@ export class CarreraScene extends Scene {
     }
 
     // ── Actualizar UI (vuelta, posición, llantas) ─────────────────────────────
-    // Llamado sólo en tickVuelta. Velocidad y gap se actualizan en update().
     private actualizarUI() {
         const e = this.estado;
 
@@ -439,12 +474,11 @@ export class CarreraScene extends Scene {
                          : '#4cdf80';
         this.metricTexts[2].setText(`${Math.round(e.desgasteLlantas)}%`).setColor(tiresColor);
 
-        // Barra de llantas (único metricBars[0])
         this.actualizarBarra((100 - e.desgasteLlantas) / 100, 0x28b878);
     }
 
     private actualizarBarra(pct: number, colorBien: number) {
-        const x     = 2 * METRIC_W + 14;   // métrica índice 2 (LLANTAS)
+        const x     = 2 * METRIC_W + 14;
         const w     = METRIC_W - 28;
         const fillW = Math.round(Math.max(0, Math.min(1, pct)) * w);
         const g     = this.metricBars[0];
@@ -487,19 +521,16 @@ export class CarreraScene extends Scene {
     }
 
     // ── Tick de vuelta (cruce de la línea de meta) ────────────────────────────
-    // Motor desactivado → calorMotor no se actualiza.
-    // Combustible y durabilidad fijos → no se usan para terminar.
     private tickVuelta() {
         this.estado.vueltaActual++;
 
         const res = simularVuelta(this.estado, this.carro.stats, this.rivales, this.circuito);
 
-        // Solo posición y desgaste de llantas
         this.estado = {
             ...this.estado,
             posicion:        res.posicion,
             desgasteLlantas: res.desgasteLlantas,
-            // calorMotor: se mantiene fijo en 20 (motor desactivado)
+            // calorMotor: fijo en 20 (motor desactivado)
         };
 
         this.actualizarUI();
