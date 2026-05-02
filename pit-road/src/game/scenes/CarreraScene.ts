@@ -2,24 +2,35 @@ import { Scene, GameObjects, Time } from 'phaser';
 import type { Carro, Circuito, EstadoCarrera, Rival, DatosCarreraScene, DatosResultadosScene } from '../../types';
 import { generarRivales } from '../../systems/GeneradorRivales';
 import { getCircuito, simularVuelta, aplicarPitStop, construirResultado } from '../../systems/SimuladorCarrera';
-import { CircuitoRenderer, SECTOR_COLOR, FRAC, CX_L, CX_R, CY, R } from '../../ui/CircuitoRenderer';
+import { CircuitoRenderer, SECTOR_COLOR, FRAC } from '../../ui/CircuitoRenderer';
 import { estilos, COLOR } from '../../utils/estilos';
 
-const VUELTAS_TOTALES = 20;
-const DELAY_VUELTA_MS = 8000;   // 8 s por vuelta (~2.7 min de carrera)
-const VUELTA_PIT_STOP = 10;
+const VUELTAS_TOTALES  = 20;
+const DELAY_BASE_MS    = 8000;   // duración base de una vuelta en ms (a ×1)
+const VUELTA_PIT_STOP  = 10;
+
+// Opciones del fader de velocidad
+const SPEED_OPTS = [1, 2, 4, 8] as const;
+type SpeedMult   = (typeof SPEED_OPTS)[number];
 
 // ── Layout (960×540) ──────────────────────────────────────────────────────────
 const HEADER_H  = 44;
-const CARDS_Y   = 430;   // sector cards strip
+const CARDS_Y   = 430;
 const CARDS_H   = 55;
-const METRICS_Y = 485;   // metrics strip → 485+55 = 540 ✓
+const METRICS_Y = 485;   // 485 + 55 = 540 ✓
 
 const CARD_PAD  = 16;
 const CARD_GAP  = 8;
 const CARD_W    = Math.floor((960 - CARD_PAD * 2 - CARD_GAP * 3) / 4);  // 226
 
 const METRIC_W  = 192;  // 960 / 5
+
+// Fader de velocidad (en header)
+const SPD_W  = 42;   // ancho de cada botón
+const SPD_H  = 26;
+const SPD_G  = 4;    // gap entre botones
+const SPD_X0 = 960 - CARD_PAD - SPEED_OPTS.length * (SPD_W + SPD_G) + SPD_G;  // 670
+const SPD_Y  = 9;
 
 const FONT = "'Open Sans', sans-serif";
 
@@ -33,7 +44,11 @@ export class CarreraScene extends Scene {
 
     private circuitoRenderer!: CircuitoRenderer;
     private progresoVehiculo  = 0;
-    private sectorVisual      = 'S1';   // sector determinado por posición real del carro
+    private sectorVisual      = 'S1';
+
+    // Velocidad de render
+    private speedMult: SpeedMult = 1;
+    private speedBtnBgs: GameObjects.Graphics[] = [];
 
     // Header
     private txtVuelta!:   GameObjects.Text;
@@ -62,8 +77,9 @@ export class CarreraScene extends Scene {
     // ── Create ────────────────────────────────────────────────────────────────
     create() {
         this.circuito = getCircuito('circuito_alfa');
-        this.rivales  = generarRivales(5, 1);
+        this.rivales  = generarRivales(1, 1);   // solo 1 rival
         this.estado   = this.crearEstadoInicial();
+        this.speedMult = 1;
 
         this.dibujarFondo();
         this.dibujarHeader();
@@ -71,32 +87,27 @@ export class CarreraScene extends Scene {
         this.crearSectorCards();
         this.crearMetricsStrip();
         this.actualizarUI();
-
-        this.timer = this.time.addEvent({
-            delay:         DELAY_VUELTA_MS,
-            callback:      this.tickVuelta,
-            callbackScope: this,
-            loop:          true,
-        });
+        this.iniciarTimer();
     }
 
-    // ── Update — animación suave y sector real del carro ──────────────────────
+    // ── Update — animación suave, sector sigue posición real del carro ────────
     update(_t: number, delta: number) {
         if (!this.esperandoPitStop) {
-            this.progresoVehiculo = (this.progresoVehiculo + delta / DELAY_VUELTA_MS) % 1;
+            this.progresoVehiculo =
+                (this.progresoVehiculo + delta * this.speedMult / DELAY_BASE_MS) % 1;
         }
         this.circuitoRenderer.actualizarVehiculo(this.progresoVehiculo, this.estado.posicion);
 
-        // El sector activo sigue la posición real del carro en pista
-        const p = this.progresoVehiculo;
-        const nuevoSector = p < FRAC.s2 ? 'S1'
-                          : p < FRAC.s3 ? 'S2'
-                          : p < FRAC.s4 ? 'S3'
-                          :               'S4';
-        if (nuevoSector !== this.sectorVisual) {
-            this.sectorVisual = nuevoSector;
-            this.actualizarSectorCards(nuevoSector);
-            this.circuitoRenderer.dibujarCircuito(nuevoSector);
+        // Sector activo según posición real en pista
+        const p    = this.progresoVehiculo;
+        const sec  = p < FRAC.s2 ? 'S1'
+                   : p < FRAC.s3 ? 'S2'
+                   : p < FRAC.s4 ? 'S3'
+                   :               'S4';
+        if (sec !== this.sectorVisual) {
+            this.sectorVisual = sec;
+            this.actualizarSectorCards(sec);
+            this.circuitoRenderer.dibujarCircuito(sec);
         }
     }
 
@@ -127,11 +138,88 @@ export class CarreraScene extends Scene {
 
         this.add.text(16, 13, this.circuito.nombre.toUpperCase(), estilos.subtitulo);
 
-        this.txtVuelta = this.add.text(480, 13, '', estilos.normal).setOrigin(0.5, 0);
+        this.txtVuelta = this.add.text(400, 13, '', estilos.normal).setOrigin(0.5, 0);
 
-        this.txtPosicion = this.add.text(940, 13, '', {
+        // Fader de velocidad en header (derecha)
+        this.crearSpeedFader();
+
+        this.txtPosicion = this.add.text(944, 13, '', {
             fontSize: '18px', fontFamily: FONT, color: '#ffcc00', fontStyle: 'bold',
         }).setOrigin(1, 0);
+    }
+
+    // ── Fader de velocidad ────────────────────────────────────────────────────
+    private crearSpeedFader() {
+        // Etiqueta
+        this.add.text(SPD_X0 - 8, SPD_Y + 6, 'VEL', {
+            fontSize: '10px', fontFamily: FONT, color: '#4a7898',
+        }).setOrigin(1, 0);
+
+        SPEED_OPTS.forEach((speed, i) => {
+            const x  = SPD_X0 + i * (SPD_W + SPD_G);
+            const bg = this.add.graphics();
+            this.speedBtnBgs.push(bg);
+
+            // Texto del botón (encima del fondo)
+            this.add.text(x + SPD_W / 2, SPD_Y + 6, `${speed}×`, {
+                fontSize: '11px', fontFamily: FONT, color: '#d0e8ff', fontStyle: 'bold',
+            }).setOrigin(0.5, 0);
+
+            const zone = this.add.zone(x, SPD_Y, SPD_W, SPD_H)
+                .setOrigin(0, 0).setInteractive({ useHandCursor: true });
+            zone.on('pointerdown', () => this.setSpeed(speed));
+            zone.on('pointerover', () => this.dibujarSpeedBtn(i, true));
+            zone.on('pointerout',  () => this.dibujarSpeedBtn(i, false));
+        });
+
+        this.refrescarSpeedFader();
+    }
+
+    private dibujarSpeedBtn(idx: number, hover: boolean) {
+        const x        = SPD_X0 + idx * (SPD_W + SPD_G);
+        const isActive = SPEED_OPTS[idx] === this.speedMult;
+        const g        = this.speedBtnBgs[idx];
+
+        g.clear();
+        if (isActive) {
+            g.fillStyle(0x1a3a60, 1);
+            g.fillRoundedRect(x, SPD_Y, SPD_W, SPD_H, 3);
+            g.lineStyle(1, 0x5070e0, 1);
+            g.strokeRoundedRect(x + 0.5, SPD_Y + 0.5, SPD_W - 1, SPD_H - 1, 3);
+        } else if (hover) {
+            g.fillStyle(0x0f1e30, 1);
+            g.fillRoundedRect(x, SPD_Y, SPD_W, SPD_H, 3);
+            g.lineStyle(1, COLOR.CARD_BORDER, 0.8);
+            g.strokeRoundedRect(x + 0.5, SPD_Y + 0.5, SPD_W - 1, SPD_H - 1, 3);
+        } else {
+            g.fillStyle(COLOR.CARD_BG, 0.85);
+            g.fillRoundedRect(x, SPD_Y, SPD_W, SPD_H, 3);
+            g.lineStyle(1, COLOR.CARD_BORDER, 0.4);
+            g.strokeRoundedRect(x + 0.5, SPD_Y + 0.5, SPD_W - 1, SPD_H - 1, 3);
+        }
+    }
+
+    private refrescarSpeedFader() {
+        SPEED_OPTS.forEach((_, i) => this.dibujarSpeedBtn(i, false));
+    }
+
+    private setSpeed(mult: SpeedMult) {
+        this.speedMult = mult;
+        this.refrescarSpeedFader();
+        // Reinicia timer si la carrera está activa (no en pit stop)
+        if (!this.esperandoPitStop) {
+            this.iniciarTimer();
+        }
+    }
+
+    private iniciarTimer() {
+        this.timer?.remove();
+        this.timer = this.time.addEvent({
+            delay:         Math.round(DELAY_BASE_MS / this.speedMult),
+            callback:      this.tickVuelta,
+            callbackScope: this,
+            loop:          true,
+        });
     }
 
     // ── Circuito ──────────────────────────────────────────────────────────────
@@ -140,18 +228,17 @@ export class CarreraScene extends Scene {
         this.circuitoRenderer.dibujarCircuito('S1');
 
         const segs     = this.circuito.sectores;
+        const CX_L     = 168, CX_R = 792, CY = 228, R = 148;
         const cx       = (CX_L + CX_R) / 2;
         const lblStyle = { fontSize: '11px', fontFamily: FONT, color: '#4a7898' };
 
-        // Etiquetas de velocidad sobre/bajo rectas
         this.add.text(cx,         CY + R + 8,  `${segs[0].velocidadPuntaKmh} km/h`, lblStyle).setOrigin(0.5, 0);
         this.add.text(cx,         CY - R - 22, `${segs[2].velocidadPuntaKmh} km/h`, lblStyle).setOrigin(0.5, 0);
-        // Etiquetas de curvas (interior del óvalo)
         this.add.text(CX_R - 68, CY - 9, `${segs[1].velocidadPuntaKmh} km/h`, lblStyle);
         this.add.text(CX_L + 10, CY - 9, `${segs[3].velocidadPuntaKmh} km/h`, lblStyle);
     }
 
-    // ── Tarjetas de sector ────────────────────────────────────────────────────
+    // ── Sector cards ──────────────────────────────────────────────────────────
     private crearSectorCards() {
         const nombres = ['Recta principal', 'Curva norte', 'Recta trasera', 'Curva sur'];
 
@@ -183,11 +270,10 @@ export class CarreraScene extends Scene {
         });
     }
 
-    // ── Franja de métricas ────────────────────────────────────────────────────
+    // ── Métricas ──────────────────────────────────────────────────────────────
     private crearMetricsStrip() {
-        const labels    = ['POSICIÓN', 'VUELTA', 'LLANTAS', 'TEMPERATURA', 'COMBUSTIBLE'];
-        const hasBar    = [false, false, true, true, true];
-        const barColors = [0, 0, 0x28b878, 0x8050e0, 0xe05828];
+        const labels = ['POSICIÓN', 'VUELTA', 'LLANTAS', 'TEMPERATURA', 'COMBUSTIBLE'];
+        const hasBar  = [false, false, true, true, true];
 
         const sep = this.add.graphics();
         sep.lineStyle(1, COLOR.CARD_BORDER, 0.35);
@@ -217,7 +303,7 @@ export class CarreraScene extends Scene {
         return {
             vueltaActual:      0,
             vueltasTotales:    VUELTAS_TOTALES,
-            posicion:          3,
+            posicion:          2,    // 2 coches en total → arranca en P2
             desgasteLlantas:   0,
             calorMotor:        20,
             combustible:       100,
@@ -233,12 +319,9 @@ export class CarreraScene extends Scene {
 
         this.txtVuelta.setText(`VUELTA  ${e.vueltaActual} / ${e.vueltasTotales}`);
 
-        const posColor = e.posicion === 1 ? '#ffcc00'
-                       : e.posicion <= 3  ? '#4cdf80'
-                       :                    '#d0e8ff';
+        const posColor = e.posicion === 1 ? '#ffcc00' : '#d0e8ff';
         this.txtPosicion.setText(`P${e.posicion}`).setColor(posColor);
 
-        // Colores dinámicos según estado
         const tiresColor = e.desgasteLlantas > 70 ? '#ff4455' : e.desgasteLlantas > 40 ? '#ffcc00' : '#4cdf80';
         const heatColor  = e.calorMotor > 80      ? '#ff4455' : e.calorMotor > 60      ? '#ffcc00' : '#4cdf80';
         const combColor  = e.combustible < 20     ? '#ff4455' : e.combustible < 40     ? '#ffcc00' : '#4cdf80';
@@ -249,7 +332,6 @@ export class CarreraScene extends Scene {
         this.metricTexts[3].setText(`${Math.round(e.calorMotor)}%`).setColor(heatColor);
         this.metricTexts[4].setText(`${Math.round(e.combustible)}%`).setColor(combColor);
 
-        // Barras: barIdx 0=llantas, 1=calor, 2=comb
         this.actualizarBarra(0, (100 - e.desgasteLlantas) / 100, 0x28b878);
         this.actualizarBarra(1, 1 - Math.min(1, e.calorMotor / 100), 0x8050e0);
         this.actualizarBarra(2, e.combustible / 100, 0xe05828);
@@ -298,13 +380,13 @@ export class CarreraScene extends Scene {
         });
     }
 
-    // ── Tick de simulación ────────────────────────────────────────────────────
+    // ── Simulación ────────────────────────────────────────────────────────────
     private tickVuelta() {
         if (this.esperandoPitStop) return;
         this.estado.vueltaActual++;
 
         if (this.estado.vueltaActual === VUELTA_PIT_STOP) {
-            this.timer.paused = true;
+            this.timer?.remove();
             this.mostrarPromptPitStop();
             return;
         }
@@ -328,7 +410,7 @@ export class CarreraScene extends Scene {
         }
     }
 
-    // ── Modal de pit stop ─────────────────────────────────────────────────────
+    // ── Pit stop ──────────────────────────────────────────────────────────────
     private mostrarPromptPitStop() {
         this.esperandoPitStop = true;
 
@@ -344,7 +426,7 @@ export class CarreraScene extends Scene {
 
         c.add(this.add.text(PX + 28, PY + 22, 'PIT STOP — Vuelta 10/20', estilos.titulo));
         c.add(this.add.text(PX + 28, PY + 52,
-            'Llantas nuevas y combustible completo. Perderás ~3 posiciones temporalmente.',
+            'Llantas nuevas y combustible completo. Perderás posición temporalmente.',
             estilos.normal));
 
         const BW = 344, BH = 52, BY = PY + PH - 70, BX2 = PX + 28 + BW + 24;
@@ -363,7 +445,6 @@ export class CarreraScene extends Scene {
         });
         btnYes.on('pointerover', () => { btnYesBg.clear(); btnYesBg.fillStyle(COLOR.BTN_GREEN_H, 1); btnYesBg.fillRoundedRect(PX + 28, BY, BW, BH, 6); });
         btnYes.on('pointerout',  () => { btnYesBg.clear(); btnYesBg.fillStyle(COLOR.BTN_GREEN,   1); btnYesBg.fillRoundedRect(PX + 28, BY, BW, BH, 6); });
-
         c.add(btnYesBg);
         c.add(this.add.text(PX + 28 + BW / 2, BY + 15, 'ENTRAR AL PIT', {
             fontSize: '15px', fontFamily: FONT, color: '#4cdf80', fontStyle: 'bold',
@@ -380,7 +461,6 @@ export class CarreraScene extends Scene {
         btnNo.on('pointerdown', () => this.cerrarPitStop(c, btnYesBg, btnNoBg));
         btnNo.on('pointerover', () => { btnNoBg.clear(); btnNoBg.fillStyle(COLOR.BTN_RED_H, 1); btnNoBg.fillRoundedRect(BX2, BY, BW, BH, 6); });
         btnNo.on('pointerout',  () => { btnNoBg.clear(); btnNoBg.fillStyle(COLOR.BTN_RED,   1); btnNoBg.fillRoundedRect(BX2, BY, BW, BH, 6); });
-
         c.add(btnNoBg);
         c.add(this.add.text(BX2 + BW / 2, BY + 15, 'SEGUIR EN PISTA', {
             fontSize: '15px', fontFamily: FONT, color: '#ff8888', fontStyle: 'bold',
@@ -397,12 +477,13 @@ export class CarreraScene extends Scene {
         bg2.destroy();
         container.destroy();
         this.esperandoPitStop = false;
-        this.timer.paused     = false;
+        // Reinicia timer con la velocidad actual (puede haber cambiado durante el pit stop)
+        this.iniciarTimer();
     }
 
     // ── Fin de carrera ────────────────────────────────────────────────────────
     private terminarCarrera() {
-        this.timer.remove();
+        this.timer?.remove();
         const resultado = construirResultado(this.estado);
         const datos: DatosResultadosScene = { resultado, estadoCarrera: this.estado };
         this.time.delayedCall(1200, () => this.scene.start('ResultadosScene', datos));
