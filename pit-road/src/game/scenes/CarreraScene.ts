@@ -6,16 +6,16 @@ import { CircuitoRenderer, SECTOR_COLOR, CX_L, CX_R, CY, R } from '../../ui/Circ
 import { estilos, COLOR } from '../../utils/estilos';
 
 const VUELTAS_TOTALES = 20;
-const DELAY_VUELTA_MS = 1500;
+const DELAY_VUELTA_MS = 2500;   // 2.5s per lap — creates more tension
 const VUELTA_PIT_STOP = 10;
 
 // ── Layout zones ──────────────────────────────────────────────────────────────
 const HEADER_H   = 13;   // y = 0 – 13
 const CIRCUIT_H  = 132;  // y = 13 – HEADER_H + CIRCUIT_H (circuit area bottom)
 const CARDS_Y    = HEADER_H + CIRCUIT_H;   // = 145
-const CARDS_H    = 21;
-const METRICS_Y  = CARDS_Y + CARDS_H;     // = 166
-// Metrics strip: y = 166 – 180
+const CARDS_H    = 18;
+const METRICS_Y  = CARDS_Y + CARDS_H;     // = 163
+// Metrics strip: y = 163 – 180  (17px — fits 7px label + 8px value)
 
 const FONT = "'Open Sans', sans-serif";
 
@@ -108,11 +108,11 @@ export class CarreraScene extends Scene {
         g.lineBetween(0, HEADER_H, 320, HEADER_H);
 
         this.add.text(4, 2, this.circuito.nombre.toUpperCase(), {
-            fontSize: '12px', fontFamily: FONT, color: '#7ab8e8',
+            fontSize: '9px', fontFamily: FONT, color: '#7ab8e8',
         });
 
-        this.txtVuelta   = this.add.text(130, 2, '', { fontSize: '12px', fontFamily: FONT, color: '#d0e8ff' });
-        this.txtPosicion = this.add.text(254, 2, '', { fontSize: '12px', fontFamily: FONT, color: '#ffcc00', fontStyle: 'bold' });
+        this.txtVuelta   = this.add.text(130, 2, '', { fontSize: '9px', fontFamily: FONT, color: '#d0e8ff' });
+        this.txtPosicion = this.add.text(254, 2, '', { fontSize: '9px', fontFamily: FONT, color: '#ffcc00', fontStyle: 'bold' });
     }
 
     // ── Circuit area ──────────────────────────────────────────────────────────
@@ -149,20 +149,20 @@ export class CarreraScene extends Scene {
             this.sectorCardBg.push(g);
 
             // Sector ID tag
-            const idTxt = this.add.text(x + 4, CARDS_Y + 4, seg.id, {
-                fontSize: '12px', fontFamily: FONT,
+            const idTxt = this.add.text(x + 3, CARDS_Y + 2, seg.id, {
+                fontSize: '8px', fontFamily: FONT,
                 color: `#${color.toString(16).padStart(6, '0')}`,
                 fontStyle: 'bold',
             });
             this.sectorCardTxt.push(idTxt);
 
             // Sector short name
-            this.add.text(x + 22, CARDS_Y + 4, abbrev[i], {
-                fontSize: '12px', fontFamily: FONT, color: '#5888a8',
+            this.add.text(x + 20, CARDS_Y + 2, abbrev[i], {
+                fontSize: '8px', fontFamily: FONT, color: '#5888a8',
             });
 
             // Speed
-            const spdTxt = this.add.text(x + 4, CARDS_Y + 13, `${seg.velocidadPuntaKmh}km/h`, {
+            const spdTxt = this.add.text(x + 3, CARDS_Y + 11, `${seg.velocidadPuntaKmh}km/h`, {
                 fontSize: '7px', fontFamily: FONT, color: '#3a6080',
             });
             this.sectorCardSpeed.push(spdTxt);
@@ -175,21 +175,20 @@ export class CarreraScene extends Scene {
         g2.lineBetween(0, METRICS_Y - 1, 320, METRICS_Y - 1);
     }
 
-    // ── Metrics strip ─────────────────────────────────────────────────────────
+    // ── Metrics strip — two rows, 7px label + 8px value, fits in 17px ─────────
     private crearMetricsStrip() {
         const labels = ['POS', 'VUELTA', 'LLANTAS', 'CALOR', 'COMB'];
         const W = 64, Y = METRICS_Y;
+        const SEP = this.add.graphics();
+        SEP.lineStyle(1, COLOR.CARD_BORDER, 0.5);
 
         labels.forEach((label, i) => {
             const x = i * W;
-            // Separator line between blocks
-            if (i > 0) {
-                const g = this.add.graphics();
-                g.lineStyle(1, COLOR.CARD_BORDER, 0.5);
-                g.lineBetween(x, Y + 2, x, Y + 14 - 2);
-            }
-            this.add.text(x + 3, Y + 2, label, estilos.cardLabel);
-            const vTxt = this.add.text(x + 3, Y + 10, '—', estilos.cardValue);
+            if (i > 0) SEP.lineBetween(x, Y + 2, x, Y + 15);
+            this.add.text(x + 3, Y + 1, label, estilos.cardLabel);               // 7px → 14px screen
+            const vTxt = this.add.text(x + 3, Y + 9, '—', {
+                fontSize: '8px', fontFamily: "'Open Sans', sans-serif", color: '#e0f0ff', fontStyle: 'bold',
+            });
             this.metricTexts.push(vTxt);
         });
     }
@@ -307,10 +306,10 @@ export class CarreraScene extends Scene {
         c.add(g);
 
         c.add(this.add.text(PX + 8, PY + 7, '¿PIT STOP?', {
-            fontSize: '14px', fontFamily: FONT, color: '#7ab8e8', fontStyle: 'bold',
+            fontSize: '10px', fontFamily: FONT, color: '#7ab8e8', fontStyle: 'bold',
         }));
         c.add(this.add.text(PX + 8, PY + 23, 'Llantas frescas · pierdes ~3 posiciones', {
-            fontSize: '12px', fontFamily: FONT, color: '#4a7898',
+            fontSize: '9px', fontFamily: FONT, color: '#4a7898',
         }));
 
         // YES button
@@ -340,7 +339,7 @@ export class CarreraScene extends Scene {
         btnNo.on('pointerout',   () => { btnNoBg.clear(); btnNoBg.fillStyle(COLOR.BTN_RED, 1);   btnNoBg.fillRoundedRect(PX + 8 + BW + 8, BY, BW, BH, 3); });
         c.add(btnNoBg);
         c.add(this.add.text(PX + 28 + BW + 8, BY + 3, 'NO, SEGUIR', {
-            fontSize: '12px', fontFamily: FONT, color: '#ff8888',
+            fontSize: '9px', fontFamily: FONT, color: '#ff8888',
         }));
         c.add(btnNo);
     }

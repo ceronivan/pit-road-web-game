@@ -22,13 +22,13 @@ const HEADER_H  = 13;
 const SLOT_X    = 4;
 const SLOT_Y0   = HEADER_H + 3;
 const SLOT_W    = 152;
-const SLOT_H    = 24;
-const SLOT_GAP  = 2;
+const SLOT_H    = 22;   // was 24 — reduced to prevent overlap with button
+const SLOT_GAP  = 1;    // was 2
 const PANEL_X   = 162;
 const PANEL_W   = 154;
 const BARRA_W   = 140;
-const BARRA_H   = 7;
-const BTN_Y     = 163;
+const BARRA_H   = 6;
+const BTN_Y     = 156;  // 6 slots × 22 + 5 gaps × 1 = 137 + 16 padding = 153 → button at 156
 
 export class TallerScene extends Scene {
     private piezasEquipadas: Partial<Record<CategoriaPieza, Pieza>> = {};
@@ -92,8 +92,8 @@ export class TallerScene extends Scene {
         g.lineStyle(1, COLOR.CARD_BORDER, 0.5);
         g.lineBetween(0, HEADER_H, 320, HEADER_H);
 
-        this.add.text(4, 2, 'TALLER', { fontSize: '12px', fontFamily: FONT, color: '#ffcc00', fontStyle: 'bold' });
-        this.add.text(PANEL_X, 2, 'ESTADÍSTICAS', { fontSize: '12px', fontFamily: FONT, color: '#5888a8' });
+        this.add.text(4, 2, 'TALLER', { fontSize: '9px', fontFamily: FONT, color: '#ffcc00', fontStyle: 'bold' });
+        this.add.text(PANEL_X, 2, 'ESTADÍSTICAS', { fontSize: '9px', fontFamily: FONT, color: '#5888a8' });
     }
 
     // ── Equipment slots ───────────────────────────────────────────────────────
@@ -104,13 +104,13 @@ export class TallerScene extends Scene {
             this.slotGraphics.push(g);
 
             // Category label (fixed)
-            this.add.text(SLOT_X + 3, y + 7, `${CAT_ICON[cat]} ${CAT_LABEL[cat]}`, {
-                fontSize: '12px', fontFamily: FONT, color: '#4a7898',
+            this.add.text(SLOT_X + 3, y + 6, `${CAT_ICON[cat]} ${CAT_LABEL[cat]}`, {
+                fontSize: '9px', fontFamily: FONT, color: '#4a7898',
             });
 
             // Piece name (dynamic)
-            const nombre = this.add.text(SLOT_X + 35, y + 7, '— vacío —', {
-                fontSize: '12px', fontFamily: FONT, color: '#334455',
+            const nombre = this.add.text(SLOT_X + 32, y + 6, '— vacío —', {
+                fontSize: '9px', fontFamily: FONT, color: '#334455',
             });
             this.slotNombres.push(nombre);
 
@@ -171,19 +171,19 @@ export class TallerScene extends Scene {
         // ACCEL bar
         this.barraAccel = this.add.rectangle(x, y0 + 13, 0, BARRA_H, COLOR.ACCEL).setOrigin(0, 0);
         this.lblAccel   = this.add.text(x + BARRA_W + 3, y0 + 13, '0', {
-            fontSize: '12px', fontFamily: FONT, color: '#e05828',
+            fontSize: '9px', fontFamily: FONT, color: '#e05828',
         });
 
         // SPEED bar
         this.barraSpeed = this.add.rectangle(x, y0 + dy + 13, 0, BARRA_H, COLOR.SPEED).setOrigin(0, 0);
         this.lblSpeed   = this.add.text(x + BARRA_W + 3, y0 + dy + 13, '0', {
-            fontSize: '12px', fontFamily: FONT, color: '#8050e0',
+            fontSize: '9px', fontFamily: FONT, color: '#8050e0',
         });
 
         // HANDL bar
         this.barraHandl = this.add.rectangle(x, y0 + dy * 2 + 13, 0, BARRA_H, COLOR.HANDL).setOrigin(0, 0);
         this.lblHandl   = this.add.text(x + BARRA_W + 3, y0 + dy * 2 + 13, '0', {
-            fontSize: '12px', fontFamily: FONT, color: '#28b878',
+            fontSize: '9px', fontFamily: FONT, color: '#28b878',
         });
 
         // Rendimiento total card
@@ -194,7 +194,7 @@ export class TallerScene extends Scene {
 
         this.add.text(x, ry, 'RENDIMIENTO', estilos.cardLabel);
         this.lblRend = this.add.text(x + 70, ry - 2, '—', {
-            fontSize: '16px', fontFamily: FONT, color: '#ffcc00', fontStyle: 'bold',
+            fontSize: '11px', fontFamily: FONT, color: '#ffcc00', fontStyle: 'bold',
         });
     }
 
@@ -235,7 +235,7 @@ export class TallerScene extends Scene {
 
         c.add(this.add.text(6, 4, `ELIGE  ${CAT_LABEL[categoria]}`, estilos.subtitulo));
         const cerrar = this.add.text(POPUP_W - 14, 3, '✕', {
-            fontSize: '12px', fontFamily: FONT, color: '#ff4455',
+            fontSize: '9px', fontFamily: FONT, color: '#ff4455',
         }).setInteractive({ useHandCursor: true }).on('pointerdown', () => c.destroy());
         c.add(cerrar);
 
@@ -274,8 +274,8 @@ export class TallerScene extends Scene {
                 itemBg.strokeRoundedRect(2.5, y + 0.5, POPUP_W - 5, ITEM_H - 1, 2);
             });
 
-            c.add(this.add.text(6, y + 5, p.nombre, { fontSize: '12px', fontFamily: FONT, color: '#d0e8ff' }));
-            c.add(this.add.text(POPUP_W - 14, y + 5, rarStr, { fontSize: '12px', fontFamily: FONT, color: rarHex, fontStyle: 'bold' }));
+            c.add(this.add.text(6, y + 5, p.nombre, { fontSize: '9px', fontFamily: FONT, color: '#d0e8ff' }));
+            c.add(this.add.text(POPUP_W - 14, y + 5, rarStr, { fontSize: '9px', fontFamily: FONT, color: rarHex, fontStyle: 'bold' }));
             c.add(zone);
         });
 
@@ -303,7 +303,7 @@ export class TallerScene extends Scene {
         });
 
         this.add.text(160, BTN_Y + 3, '▶  IR A CARRERA', {
-            fontSize: '12px', fontFamily: FONT, color: '#4cdf80', fontStyle: 'bold',
+            fontSize: '9px', fontFamily: FONT, color: '#4cdf80', fontStyle: 'bold',
         }).setOrigin(0.5, 0);
     }
 

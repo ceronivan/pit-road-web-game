@@ -19,7 +19,9 @@
       "Bash(rm -rf \"D:/TRABAJOS/Ai Projects/Car Auto Project/project/pit-road/.git\")",
       "Bash(npm install *)",
       "Bash(cp \"D:/TRABAJOS/Ai Projects/Car Auto Project/docs/CONTEXT.md\" \"D:/TRABAJOS/Ai Projects/Car Auto Project/docs/PLAN.md\" \"D:/TRABAJOS/Ai Projects/Car Auto Project/docs/STACK.md\" \"D:/TRABAJOS/Ai Projects/Car Auto Project/project/pit-road/\")",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
     ]
   }
 }

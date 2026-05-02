@@ -51,8 +51,8 @@ export class ResultadosScene extends Scene {
 
         const titulo = abandono ? 'ABANDONO' : 'RESULTADO FINAL';
         const color  = abandono ? '#ff4455' : '#7ab8e8';
-        this.add.text(4, 2, titulo, { fontSize: '12px', fontFamily: FONT, color, fontStyle: 'bold' });
-        this.add.text(260, 2, 'Circuito Alfa', { fontSize: '12px', fontFamily: FONT, color: '#334455' });
+        this.add.text(4, 2, titulo, { fontSize: '9px', fontFamily: FONT, color, fontStyle: 'bold' });
+        this.add.text(260, 2, 'Circuito Alfa', { fontSize: '9px', fontFamily: FONT, color: '#334455' });
     }
 
     // ── Hero: big position ────────────────────────────────────────────────────
@@ -71,17 +71,17 @@ export class ResultadosScene extends Scene {
 
         // Medal label
         this.add.text(12, Y_TOP + 8, medal, {
-            fontSize: '20px', fontFamily: FONT, color, fontStyle: 'bold',
+            fontSize: '14px', fontFamily: FONT, color, fontStyle: 'bold',
         });
 
         // Points
         this.add.text(12, Y_TOP + 34, `${resultado.puntosObtenidos} puntos`, {
-            fontSize: '12px', fontFamily: FONT, color: '#4a7898',
+            fontSize: '9px', fontFamily: FONT, color: '#4a7898',
         });
 
         // Laps completed
         this.add.text(80, Y_TOP + 34, `${resultado.vueltasCompletadas} vueltas`, {
-            fontSize: '12px', fontFamily: FONT, color: '#4a7898',
+            fontSize: '9px', fontFamily: FONT, color: '#4a7898',
         });
 
         // Right: stat summary card
@@ -94,10 +94,10 @@ export class ResultadosScene extends Scene {
         this.add.text(168, Y_TOP + 6, 'DAÑO AL CARRO', estilos.cardLabel);
         const danoColor = resultado.danoRecibido > 60 ? '#ff4455' : resultado.danoRecibido > 30 ? '#ffcc00' : '#4cdf80';
         this.add.text(168, Y_TOP + 18, `${resultado.danoRecibido}%`, {
-            fontSize: '18px', fontFamily: FONT, color: danoColor, fontStyle: 'bold',
+            fontSize: '13px', fontFamily: FONT, color: danoColor, fontStyle: 'bold',
         });
         this.add.text(168, Y_TOP + 38, resultado.abandono ? '⚠ Abandono por avería' : '✓ Finalizó la carrera', {
-            fontSize: '12px', fontFamily: FONT, color: resultado.abandono ? '#ff4455' : '#4cdf80',
+            fontSize: '9px', fontFamily: FONT, color: resultado.abandono ? '#ff4455' : '#4cdf80',
         });
     }
 
@@ -128,7 +128,7 @@ export class ResultadosScene extends Scene {
 
             this.add.text(x + 6, y + 4, label, estilos.cardLabel);
             this.add.text(x + 6, y + 16, value, {
-                fontSize: '14px', fontFamily: FONT, color: vcolor, fontStyle: 'bold',
+                fontSize: '10px', fontFamily: FONT, color: vcolor, fontStyle: 'bold',
             });
         });
     }
@@ -192,7 +192,7 @@ export class ResultadosScene extends Scene {
         });
 
         this.add.text(160, BTN_Y + 3, '◀  VOLVER AL TALLER', {
-            fontSize: '12px', fontFamily: FONT, color: '#4cdf80', fontStyle: 'bold',
+            fontSize: '9px', fontFamily: FONT, color: '#4cdf80', fontStyle: 'bold',
         }).setOrigin(0.5, 0);
     }
 }
