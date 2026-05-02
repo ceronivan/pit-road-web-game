@@ -5,7 +5,7 @@ export const CX_L = 168;   // left curve center x
 export const CX_R = 792;   // right curve center x
 export const CY   = 228;   // center y  (header=44, circuit area top~54, bottom~402)
 export const R    = 148;   // curve radius
-const TW          = 22;    // track width
+const TW          = 28;    // track width
 
 const STRAIGHT = CX_R - CX_L;                 // 624
 const ARC_LEN  = Math.PI * R;                  // ≈ 464.9
@@ -90,17 +90,20 @@ export class CircuitoRenderer {
     }
 
     // ── Called every frame from CarreraScene.update() ─────────────────────────
+    // posicion: 1 = jugador adelante, 2 = rival adelante
     actualizarVehiculo(progreso: number, posicion: number) {
         this.gfxVehiculo.clear();
 
-        // Player (cyan)
-        const p = this.calcularPos(progreso);
-        this.dibujarCarro(p.x, p.y, p.angulo, 0x00ccff, 0x0055aa, 20, 12);
-
-        // Rival (offset by position)
-        const rivalProg = (progreso + 0.45 + (posicion - 1) * 0.05) % 1;
+        // Rival primero (se pinta debajo del jugador)
+        // Offset refleja posición relativa: ~3-5% del circuito de separación
+        const rivalOffset = posicion === 1 ? -0.035 : 0.04;
+        const rivalProg   = (progreso + rivalOffset + 1) % 1;
         const rv = this.calcularPos(rivalProg);
-        this.dibujarCarro(rv.x, rv.y, rv.angulo, 0xff4422, 0x881100, 18, 11);
+        this.dibujarCarro(rv.x, rv.y, rv.angulo, 0xff4422, 0x881100, 11, 6);
+
+        // Jugador (encima)
+        const p = this.calcularPos(progreso);
+        this.dibujarCarro(p.x, p.y, p.angulo, 0x00ccff, 0x0055aa, 13, 7);
     }
 
     calcularPos(t: number): { x: number; y: number; angulo: number } {
