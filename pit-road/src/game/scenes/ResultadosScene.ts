@@ -1,4 +1,4 @@
-import { Scene, GameObjects } from 'phaser';
+import { Scene } from 'phaser';
 import type { DatosResultadosScene, EstadoCarrera, ResultadoCarrera } from '../../types';
 import { estilos, COLOR } from '../../utils/estilos';
 

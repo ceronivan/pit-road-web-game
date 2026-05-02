@@ -189,7 +189,7 @@ export class TallerScene extends Scene {
             ['MANEJO',    COLOR.HANDL],
         ];
 
-        defs.forEach(([label, color], idx) => {
+        defs.forEach(([label, _color], idx) => {
             const y = y0 + idx * dy;
             this.add.text(x, y, label, estilos.cardLabel);
             this.gfxBars.fillStyle(COLOR.CARD_BG_ALT, 1);
