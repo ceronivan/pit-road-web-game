@@ -3,9 +3,9 @@ import type { Scene, GameObjects } from 'phaser';
 // ── Circuit geometry (canvas 960 × 540) ───────────────────────────────────────
 export const CX_L = 168;   // left curve center x
 export const CX_R = 792;   // right curve center x
-export const CY   = 228;   // center y  (header=44, circuit area top~54, bottom~402)
+export const CY   = 228;   // center y
 export const R    = 148;   // curve radius
-const TW          = 28;    // track width
+const TW          = 28;    // track width (±14 from centerline)
 
 const STRAIGHT = CX_R - CX_L;                 // 624
 const ARC_LEN  = Math.PI * R;                  // ≈ 464.9
@@ -28,18 +28,25 @@ export const SECTOR_COLOR: Record<string, number> = {
 const SECTOR_IDS = ['S1', 'S2', 'S3', 'S4'];
 const FONT       = "'Open Sans', sans-serif";
 
+// ── Racing line lateral bands ──────────────────────────────────────────────────
+// band > 0 → outer on straights, inner at apex (late-apex, player)
+// band < 0 → inner on straights, outer at apex (rival)
+// Separation on straight & at apex = |BAND_PLAYER| + |BAND_RIVAL| = 13 px
+const BAND_PLAYER =  9;
+const BAND_RIVAL  = -4;
+
 export class CircuitoRenderer {
     private gfxBase!:     GameObjects.Graphics;
     private gfxSectores!: GameObjects.Graphics;
     private gfxVehiculo!: GameObjects.Graphics;
 
-    constructor(private scene: Scene) {
+    constructor(scene: Scene) {
         this.gfxBase     = scene.add.graphics();
         this.gfxSectores = scene.add.graphics();
         this.gfxVehiculo = scene.add.graphics();
 
-        // Static START label at the meta position
-        scene.add.text(CX_L + 8, CY + R + 8, 'START', {
+        // Static START label at meta position
+        scene.add.text(CX_L + 8, CY + R + 10, 'START', {
             fontSize: '12px',
             fontFamily: FONT,
             color: '#ffffff',
@@ -90,48 +97,61 @@ export class CircuitoRenderer {
     }
 
     // ── Called every frame from CarreraScene.update() ─────────────────────────
-    // posicion: 1 = jugador adelante, 2 = rival adelante
-    actualizarVehiculo(progreso: number, posicion: number) {
+    // playerProg / rivalProg: independent track progress values [0, 1)
+    actualizarVehiculo(playerProg: number, rivalProg: number) {
         this.gfxVehiculo.clear();
 
         // Rival primero (se pinta debajo del jugador)
-        // Offset refleja posición relativa: ~3-5% del circuito de separación
-        const rivalOffset = posicion === 1 ? -0.035 : 0.04;
-        const rivalProg   = (progreso + rivalOffset + 1) % 1;
-        const rv = this.calcularPos(rivalProg);
-        this.dibujarCarro(rv.x, rv.y, rv.angulo, 0xff4422, 0x881100, 11, 6);
+        const rv = this.calcularPos(rivalProg, BAND_RIVAL);
+        this.dibujarCarro(rv.x, rv.y, rv.angulo, 0xff4422, 0x881100, 10, 5);
 
-        // Jugador (encima)
-        const p = this.calcularPos(progreso);
-        this.dibujarCarro(p.x, p.y, p.angulo, 0x00ccff, 0x0055aa, 13, 7);
+        // Jugador encima
+        const p = this.calcularPos(playerProg, BAND_PLAYER);
+        this.dibujarCarro(p.x, p.y, p.angulo, 0x00ccff, 0x0055aa, 12, 6);
     }
 
-    calcularPos(t: number): { x: number; y: number; angulo: number } {
+    // ── Calcula posición con línea de carrera (racing line) ───────────────────
+    // band > 0: outer en rectas → inner en apex (late apex)
+    // band < 0: inner en rectas → outer en apex (anti-late apex / rival)
+    // Fórmula curvas: r = R + band · cos(2π·tl)
+    //   tl=0  → r=R+band (entrada exterior/interior según signo)
+    //   tl=0.5 → r=R-band (apex opuesto)
+    //   tl=1  → r=R+band (salida = misma que entrada → continuidad ✓)
+    calcularPos(t: number, band: number = 0): { x: number; y: number; angulo: number } {
         const { s2: F2, s3: F3, s4: F4 } = FRAC;
         const PI = Math.PI;
 
         if (t < F2) {
+            // S1: recta inferior, izquierda → derecha
             const tl = t / F2;
-            return { x: CX_L + tl * STRAIGHT, y: CY + R, angulo: 0 };
+            return { x: CX_L + tl * STRAIGHT, y: CY + R + band, angulo: 0 };
         }
+
         if (t < F3) {
+            // S2: curva derecha (horaria, de π/2 → -π/2)
             const tl = (t - F2) / (F3 - F2);
+            const r  = R + band * Math.cos(2 * PI * tl);
             const θ  = PI / 2 - PI * tl;
             return {
-                x:      CX_R + R * Math.cos(θ),
-                y:      CY   + R * Math.sin(θ),
+                x:      CX_R + r * Math.cos(θ),
+                y:      CY   + r * Math.sin(θ),
                 angulo: Math.atan2(-Math.cos(θ), Math.sin(θ)),
             };
         }
+
         if (t < F4) {
+            // S3: recta superior, derecha → izquierda
             const tl = (t - F3) / (F4 - F3);
-            return { x: CX_R - tl * STRAIGHT, y: CY - R, angulo: Math.PI };
+            return { x: CX_R - tl * STRAIGHT, y: CY - R - band, angulo: PI };
         }
+
+        // S4: curva izquierda (horaria, de -π/2 → -3π/2)
         const tl = (t - F4) / (1 - F4);
-        const θ  = -Math.PI / 2 - Math.PI * tl;
+        const r  = R + band * Math.cos(2 * PI * tl);
+        const θ  = -PI / 2 - PI * tl;
         return {
-            x:      CX_L + R * Math.cos(θ),
-            y:      CY   + R * Math.sin(θ),
+            x:      CX_L + r * Math.cos(θ),
+            y:      CY   + r * Math.sin(θ),
             angulo: Math.atan2(-Math.cos(θ), Math.sin(θ)),
         };
     }
@@ -145,12 +165,15 @@ export class CircuitoRenderer {
         g.save();
         g.translateCanvas(x, y);
         g.rotateCanvas(angulo);
+        // Cuerpo principal
         g.fillStyle(colorBody, 1);
-        g.fillRect(-Math.floor(w / 2), -Math.floor(h / 2), w - 4, h);
+        g.fillRect(-Math.floor(w / 2), -Math.floor(h / 2), w - 3, h);
+        // Frente (dirección de marcha)
         g.fillStyle(colorFront, 1);
-        g.fillRect(Math.floor(w / 2) - 4, -Math.floor(h / 2), 4, h);
-        g.fillStyle(0xffffff, 0.7);
-        g.fillRect(-2, -2, 4, 4);
+        g.fillRect(Math.floor(w / 2) - 3, -Math.floor(h / 2), 3, h);
+        // Punto de cockpit
+        g.fillStyle(0xffffff, 0.6);
+        g.fillRect(-1, -1, 3, 3);
         g.restore();
     }
 
