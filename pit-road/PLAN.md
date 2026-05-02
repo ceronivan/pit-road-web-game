@@ -11,6 +11,11 @@
 - [x] Tipos Circuito, Segmento, ModificadoresSegmento añadidos a types/index.ts
 - [x] SimuladorCarrera actualizado para usar modificadores por segmento y clima por circuito
 - [x] CarreraScene muestra sector activo en UI (S1–S4, nombre y velocidad punta)
+- [x] Crear `src/ui/CircuitoRenderer.ts` — paperclip oval con sectores coloreados, vehículo animado, meta ajedrezada
+- [x] Rediseñar CarreraScene — layout circuit-céntrico: header + circuito + sector cards + metrics strip
+- [x] Rediseñar TallerScene — card style: header, slots con borde de rareza, barras de stats, botón pill
+- [x] Rediseñar ResultadosScene — card style: hero posición, grid stats, barra de salud del carro
+- [x] Actualizar estilos.ts — paleta extendida con COLOR map (cards, sectores, botones)
 
 ---
 
