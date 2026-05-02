@@ -30,10 +30,10 @@ const FONT       = "'Open Sans', sans-serif";
 
 // ── Racing line lateral bands ──────────────────────────────────────────────────
 // band > 0 → outer on straights, inner at apex (late-apex, player)
-// band < 0 → inner on straights, outer at apex (rival)
+// band < 0 → inner on straights, outer at apex (rival defends inside)
 // Separation on straight & at apex = |BAND_PLAYER| + |BAND_RIVAL| = 13 px
-const BAND_PLAYER =  9;
-const BAND_RIVAL  = -4;
+export const BAND_PLAYER =  9;
+export const BAND_RIVAL  = -4;
 
 export class CircuitoRenderer {
     private gfxBase!:     GameObjects.Graphics;
