@@ -2,7 +2,7 @@ import { Scene, GameObjects } from 'phaser';
 import type { Carro, Circuito, EstadoCarrera, Rival, DatosCarreraScene, DatosResultadosScene } from '../../types';
 import { generarRivales } from '../../systems/GeneradorRivales';
 import { getCircuito, simularVuelta, construirResultado } from '../../systems/SimuladorCarrera';
-import { CircuitoRenderer, SECTOR_COLOR, FRAC, CX_L, CX_R, CY, R } from '../../ui/CircuitoRenderer';
+import { CircuitoRenderer, SECTOR_COLOR, FRAC, CX_L, CX_R, CY, R, BAND_PLAYER, BAND_RIVAL } from '../../ui/CircuitoRenderer';
 import { estilos, COLOR } from '../../utils/estilos';
 
 const VUELTAS_TOTALES = 20;
@@ -18,11 +18,13 @@ type SpeedMult   = (typeof SPEED_OPTS)[number];
 // Standing-start: rampa de aceleración en los primeros N ms reales
 const STARTUP_MS = 3200;
 
-// Distancias de seguridad entre carros (fracción del circuito)
-// ≈ 109 m → empieza a notar el carro adelante (zona larga, freno suave)
-// ≈  34 m → distancia objetivo mínima (intensidad máxima: solo -18 % de vel.)
-const PROX_GAP   = 0.080;
-const SAFETY_GAP = 0.025;
+// Zonas de proximidad entre carros (píxeles en pantalla — espacio real)
+// Zone A: 55–140 px → freno suave (máx  8 %)
+// Zone B: 22– 55 px → rebuffo / slipstream (máx +3.5 % para el seguidor)
+// Zone C:  0– 22 px → freno de emergencia / colisión (máx 80 % de reducción)
+const ZONE_A_PX = 140;
+const ZONE_B_PX =  55;
+const ZONE_C_PX =  22;
 
 // ── Layout (960×540) ──────────────────────────────────────────────────────────
 const HEADER_H  = 44;
@@ -141,26 +143,48 @@ export class CarreraScene extends Scene {
         const rawGap    = (this.rivalProgress - this.progresoVehiculo + 1) % 1;
         const gapSigned = rawGap > 0.5 ? rawGap - 1 : rawGap;
 
-        // ── Freno de proximidad (defensa / siguiendo al carro de adelante) ────
-        // Simula el comportamiento de la imagen del Traction Circle: el carro de
-        // atrás frena para guardar distancia y no chocar con el de adelante.
-        const absGap = Math.abs(gapSigned);
+        // ── Detección de proximidad en espacio de píxeles (distancia euclídea) ──
+        // Más fiable que la fracción de pista: captura colisiones en curvas donde
+        // ambos carros están cerca en pantalla aunque tengan diferente progreso.
+        const playerPos = this.circuitoRenderer.calcularPos(this.progresoVehiculo, BAND_PLAYER);
+        const rivalPos  = this.circuitoRenderer.calcularPos(this.rivalProgress,    BAND_RIVAL);
+        const dx = playerPos.x - rivalPos.x;
+        const dy = playerPos.y - rivalPos.y;
+        const pixelDist = Math.sqrt(dx * dx + dy * dy);
+
         let playerProxFactor = 1.0;
         let rivalProxFactor  = 1.0;
 
-        if (absGap > 0.001 && absGap < PROX_GAP) {
-            // raw: 0 cuando está a PROX_GAP de distancia, 1 cuando está a SAFETY_GAP
-            const raw = Math.max(0, 1 - (absGap - SAFETY_GAP) / (PROX_GAP - SAFETY_GAP));
-            // Curva coseno: entrada muy suave, presión creciente al acercarse
-            const intensity = 0.5 - 0.5 * Math.cos(raw * Math.PI);
-            // Reducción máxima de solo 18 % → nunca hay un frenazo brusco
-            const brakeF = Math.max(0.82, 1 - intensity * 0.18);
-            if (gapSigned > 0) playerProxFactor = brakeF;  // jugador sigue al rival
-            else                rivalProxFactor  = brakeF;  // rival sigue al jugador
+        if (pixelDist < ZONE_A_PX) {
+            // ¿Quién va detrás? gapSigned > 0 → rival adelante → jugador sigue
+            if (pixelDist < ZONE_C_PX) {
+                // Zona C — colisión/emergencia: freno fuerte hasta 80 % de reducción
+                const raw    = Math.max(0, (ZONE_C_PX - pixelDist) / ZONE_C_PX);
+                const brakeF = Math.max(0.20, 1 - raw * 0.80);
+                if (gapSigned > 0) playerProxFactor = brakeF;
+                else               rivalProxFactor  = brakeF;
+            } else if (pixelDist < ZONE_B_PX) {
+                // Zona B — rebuffo: el seguidor gana hasta +3.5 % de velocidad
+                const raw       = 1 - (pixelDist - ZONE_C_PX) / (ZONE_B_PX - ZONE_C_PX);
+                const slipBoost = 1 + raw * 0.035;
+                if (gapSigned > 0) playerProxFactor = slipBoost;
+                else               rivalProxFactor  = slipBoost;
+            } else {
+                // Zona A — seguimiento suave: coseno ease-in, máx 8 % de reducción
+                const raw       = 1 - (pixelDist - ZONE_B_PX) / (ZONE_A_PX - ZONE_B_PX);
+                const intensity = 0.5 - 0.5 * Math.cos(raw * Math.PI);
+                const brakeF    = Math.max(0.92, 1 - intensity * 0.08);
+                if (gapSigned > 0) playerProxFactor = brakeF;
+                else               rivalProxFactor  = brakeF;
+            }
         }
 
+        // ── Borde de pista: freno cuando el carro roza el muro en curva ─────
+        const playerWallF = this.factorBordePista(this.progresoVehiculo, BAND_PLAYER);
+        const rivalWallF  = this.factorBordePista(this.rivalProgress,    BAND_RIVAL);
+
         // ── Progreso del jugador ──────────────────────────────────────────────
-        const playerFactor = this.factorVelocidad(this.progresoVehiculo) * startupFactor * playerProxFactor;
+        const playerFactor = this.factorVelocidad(this.progresoVehiculo) * startupFactor * playerProxFactor * playerWallF;
         this.progresoVehiculo += delta * this.speedMult * playerFactor / DELAY_BASE_MS;
 
         // Cruce de la línea de meta → nueva vuelta
@@ -191,7 +215,7 @@ export class CarreraScene extends Scene {
         }
 
         const rivalFactor = this.factorVelocidad(this.rivalProgress)
-            * this.rivalSectorFactor * startupFactor * rivalProxFactor;
+            * this.rivalSectorFactor * startupFactor * rivalProxFactor * rivalWallF;
         this.rivalProgress = (this.rivalProgress + delta * this.speedMult * rivalFactor / DELAY_BASE_MS + 1) % 1;
 
         // Tope duro: el rival nunca puede separarse más de ±5 % del jugador
@@ -309,6 +333,35 @@ export class CarreraScene extends Scene {
             sum += this.velocidadInstantanea((i + 0.5) / N);
         }
         return sum / N;
+    }
+
+    // ── Freno por proximidad al muro (solo curvas) ────────────────────────────
+    // La línea de carrera lleva al carro hasta ~5 px del borde en curva.
+    // Si el offset lateral supera el umbral, se aplica una reducción suave.
+    //
+    //  band=+9 (jugador): en la entrada/salida de curva → wallDist ≈ 5 px → activo
+    //  band=-4 (rival):   máx offset = 4 px             → wallDist ≈ 10 px → inactivo
+    private factorBordePista(t: number, band: number): number {
+        // Solo en sectores de curva (si = 1 → S2, si = 3 → S4)
+        const si = t < FRAC.s2 ? 0
+                 : t < FRAC.s3 ? 1
+                 : t < FRAC.s4 ? 2 : 3;
+        if (si !== 1 && si !== 3) return 1.0;
+
+        const boundaries = [0, FRAC.s2, FRAC.s3, FRAC.s4, 1] as const;
+        const posIn      = (t - boundaries[si]) / (boundaries[si + 1] - boundaries[si]);
+
+        // Distancia lateral al borde = semiancho_pista − offset_del_banding
+        const HALF_TW    = 14;  // TW/2 = 28/2
+        const lateralOff = Math.abs(band * Math.cos(2 * Math.PI * posIn));
+        const wallDist   = HALF_TW - lateralOff;
+
+        const WALL_THRESH = 8;    // px: por debajo de esto el muro "aprieta"
+        const MAX_REDUCE  = 0.07; // máx 7 % de reducción de velocidad
+        if (wallDist >= WALL_THRESH) return 1.0;
+
+        const raw = (WALL_THRESH - wallDist) / WALL_THRESH;
+        return Math.max(1 - MAX_REDUCE, 1 - raw * MAX_REDUCE);
     }
 
     // ── Fondo ─────────────────────────────────────────────────────────────────
