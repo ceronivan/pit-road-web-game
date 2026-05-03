@@ -88,6 +88,7 @@ export interface EstadoJuego {
 export interface DatosCarreraScene {
     carro: Carro;
     clima?: EstadoClimatico;
+    circuitoId?: string;   // 'circuito_alfa' (default) | 'circuito_beta'
 }
 
 export interface DatosResultadosScene {

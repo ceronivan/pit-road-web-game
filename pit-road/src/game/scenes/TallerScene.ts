@@ -55,6 +55,10 @@ export class TallerScene extends Scene {
     private slotNombres:  GameObjects.Text[]     = [];
     private slotRareza:   GameObjects.Text[]     = [];
 
+    // ── Circuit selector ──────────────────────────────────────────────────────
+    private selectedCircuitoId = 'circuito_alfa';
+    private circuitBtnBgs: GameObjects.Graphics[] = [];
+
     private gfxBars!:    GameObjects.Graphics;
     private barraAccel!: GameObjects.Rectangle;
     private barraSpeed!: GameObjects.Rectangle;
@@ -78,6 +82,7 @@ export class TallerScene extends Scene {
         this.dibujarHeader();
         this.dibujarSlots();
         this.dibujarPanelStats();
+        this.dibujarSelectorCircuito();
         this.dibujarBotonCarrera();
         this.actualizarStatsUI();
     }
@@ -305,6 +310,62 @@ export class TallerScene extends Scene {
         this.panelSelector = c;
     }
 
+    // ── Selector de circuito ──────────────────────────────────────────────────
+    private dibujarSelectorCircuito() {
+        const x    = PANEL_X;
+        const y    = 432;
+        const BW   = 195;
+        const BH   = 32;
+        const GAP  = 10;
+        const IDS  = ['circuito_alfa', 'circuito_beta'] as const;
+        const LBLS = ['CIRCUITO ALFA', 'CIRCUITO BETA'];
+
+        this.add.text(x, y - 18, 'CIRCUITO', estilos.cardLabel);
+
+        const drawBtn = (i: number, hover: boolean) => {
+            const bx     = x + i * (BW + GAP);
+            const active = IDS[i] === this.selectedCircuitoId;
+            const g      = this.circuitBtnBgs[i];
+            g.clear();
+            if (active) {
+                g.fillStyle(0x1a3a60, 1);
+                g.fillRoundedRect(bx, y, BW, BH, 4);
+                g.lineStyle(1, 0x5070e0, 1);
+                g.strokeRoundedRect(bx + 0.5, y + 0.5, BW - 1, BH - 1, 4);
+            } else if (hover) {
+                g.fillStyle(0x0f1e30, 1);
+                g.fillRoundedRect(bx, y, BW, BH, 4);
+                g.lineStyle(1, COLOR.CARD_BORDER, 0.8);
+                g.strokeRoundedRect(bx + 0.5, y + 0.5, BW - 1, BH - 1, 4);
+            } else {
+                g.fillStyle(COLOR.CARD_BG, 1);
+                g.fillRoundedRect(bx, y, BW, BH, 4);
+                g.lineStyle(1, COLOR.CARD_BORDER, 0.35);
+                g.strokeRoundedRect(bx + 0.5, y + 0.5, BW - 1, BH - 1, 4);
+            }
+        };
+
+        IDS.forEach((id, i) => {
+            const bx = x + i * (BW + GAP);
+            this.circuitBtnBgs.push(this.add.graphics());
+            drawBtn(i, false);
+
+            this.add.text(bx + BW / 2, y + BH / 2, LBLS[i], {
+                fontSize: '12px', fontFamily: FONT, color: '#d0e8ff', fontStyle: 'bold',
+            }).setOrigin(0.5, 0.5);
+
+            const zone = this.add.zone(bx, y, BW, BH)
+                .setOrigin(0, 0).setInteractive({ useHandCursor: true });
+
+            zone.on('pointerdown', () => {
+                this.selectedCircuitoId = id;
+                IDS.forEach((_, j) => drawBtn(j, false));
+            });
+            zone.on('pointerover', () => drawBtn(i, true));
+            zone.on('pointerout',  () => drawBtn(i, false));
+        });
+    }
+
     // ── Botón carrera ─────────────────────────────────────────────────────────
     private dibujarBotonCarrera() {
         const BX = 16, BW = 928, BY = BTN_Y + 8;
@@ -330,7 +391,10 @@ export class TallerScene extends Scene {
 
     private irACarrera() {
         const stats = calcularStatsCarro(this.piezasEquipadas);
-        const datos: DatosCarreraScene = { carro: { piezas: this.piezasEquipadas, stats } };
+        const datos: DatosCarreraScene = {
+            carro:      { piezas: this.piezasEquipadas, stats },
+            circuitoId: this.selectedCircuitoId,
+        };
         this.scene.start('CarreraScene', datos);
     }
 }

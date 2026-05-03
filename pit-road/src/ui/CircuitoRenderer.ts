@@ -40,6 +40,9 @@ export class CircuitoRenderer {
     private gfxSectores!: GameObjects.Graphics;
     private gfxVehiculo!: GameObjects.Graphics;
 
+    /** Exposes sector fractions with the same shape as CircuitoBetaRenderer.frac */
+    readonly frac = FRAC;
+
     constructor(scene: Scene) {
         this.gfxBase     = scene.add.graphics();
         this.gfxSectores = scene.add.graphics();

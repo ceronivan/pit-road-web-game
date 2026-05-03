@@ -2,7 +2,8 @@ import { Scene, GameObjects } from 'phaser';
 import type { Carro, Circuito, EstadoCarrera, Rival, DatosCarreraScene, DatosResultadosScene } from '../../types';
 import { generarRivales } from '../../systems/GeneradorRivales';
 import { getCircuito, simularVuelta, construirResultado } from '../../systems/SimuladorCarrera';
-import { CircuitoRenderer, SECTOR_COLOR, FRAC, CX_L, CX_R, CY, R, BAND_PLAYER, BAND_RIVAL } from '../../ui/CircuitoRenderer';
+import { CircuitoRenderer, SECTOR_COLOR, CX_L, CX_R, CY, R, BAND_PLAYER, BAND_RIVAL } from '../../ui/CircuitoRenderer';
+import { CircuitoBetaRenderer } from '../../ui/CircuitoBetaRenderer';
 import { estilos, COLOR } from '../../utils/estilos';
 
 const VUELTAS_TOTALES = 20;
@@ -85,7 +86,15 @@ export class CarreraScene extends Scene {
     private rivales!:  Rival[];
     private estado!:   EstadoCarrera;
 
-    private circuitoRenderer!: CircuitoRenderer;
+    private circuitoRenderer!: CircuitoRenderer | CircuitoBetaRenderer;
+
+    // ── Multi-circuit support ─────────────────────────────────────────────────
+    private circuitoId        = 'circuito_alfa';
+    private wallBrakingEnabled = true;
+    // Sector boundary fractions (populated from the active renderer)
+    private frac = { s1: 0, s2: 0.286, s3: 0.5, s4: 0.786 };
+    // Set of sector IDs whose tipo === 'recta' (derived from circuito data)
+    private straightSectors = new Set<string>();
 
     private progresoVehiculo = 0;
     private rivalProgress    = 0;
@@ -131,15 +140,16 @@ export class CarreraScene extends Scene {
 
     // ── Init ──────────────────────────────────────────────────────────────────
     init(datos: DatosCarreraScene) {
-        this.carro = datos.carro ?? {
+        this.carro      = datos.carro ?? {
             piezas: {},
             stats: { acceleration: 50, topSpeed: 50, handling: 50 },
         };
+        this.circuitoId = datos.circuitoId ?? 'circuito_alfa';
     }
 
     // ── Create ────────────────────────────────────────────────────────────────
     create() {
-        this.circuito         = getCircuito('circuito_alfa');
+        this.circuito         = getCircuito(this.circuitoId);
         this.rivales          = generarRivales(1, 1);
         this.estado           = this.crearEstadoInicial();
         this.speedMult        = 1;
@@ -162,6 +172,13 @@ export class CarreraScene extends Scene {
         this.duelInitGapSign  = 0;
         this.playerEffBand    = BAND_PLAYER;
         this.rivalEffBand     = BAND_RIVAL;
+
+        // Derive which sectors are straights (used by tailing + rival factor)
+        this.straightSectors  = new Set(
+            this.circuito.sectores.filter(s => s.tipo === 'recta').map(s => s.id)
+        );
+        // Wall braking only valid for the oval (cosine formula is oval-specific)
+        this.wallBrakingEnabled = this.circuitoId === 'circuito_alfa';
 
         // Velocidad media real del circuito (integración numérica del perfil)
         this.avgSectorSpeed = this.calcularVelocidadMedia();
@@ -263,7 +280,9 @@ export class CarreraScene extends Scene {
 
         // ── Tailing / maniobra de rebase ──────────────────────────────────────
         // Helpers: ¿está el carro en recta?
-        const onStraight = (t: number) => t < FRAC.s2 || (t >= FRAC.s3 && t < FRAC.s4);
+        const secOf = (t: number) =>
+            t < this.frac.s2 ? 'S1' : t < this.frac.s3 ? 'S2' : t < this.frac.s4 ? 'S3' : 'S4';
+        const onStraight  = (t: number) => this.straightSectors.has(secOf(t));
         const pOnStraight = onStraight(this.progresoVehiculo);
         const rOnStraight = onStraight(this.rivalProgress);
         const bothStraight = pOnStraight && rOnStraight;
@@ -374,13 +393,13 @@ export class CarreraScene extends Scene {
         // Al entrar en cada sector se sortea un factor de rendimiento:
         //   CURVA: 55% buen trazo (98–108%), 45% mal trazo (74–92%)
         //   RECTA: varianza pequeña (94–106%) — diferencias de aceleración
-        const rSec = this.rivalProgress < FRAC.s2 ? 'S1'
-                   : this.rivalProgress < FRAC.s3 ? 'S2'
-                   : this.rivalProgress < FRAC.s4 ? 'S3'
-                   :                                'S4';
+        const rSec = this.rivalProgress < this.frac.s2 ? 'S1'
+                   : this.rivalProgress < this.frac.s3 ? 'S2'
+                   : this.rivalProgress < this.frac.s4 ? 'S3'
+                   :                                     'S4';
         if (rSec !== this.rivalCurrentSector) {
             this.rivalCurrentSector = rSec;
-            const esCurva = rSec === 'S2' || rSec === 'S4';
+            const esCurva = !this.straightSectors.has(rSec);
             if (esCurva) {
                 this.rivalSectorFactor = Math.random() < 0.55
                     ? 0.98 + Math.random() * 0.10   // buen trazo: 98–108 %
@@ -409,10 +428,10 @@ export class CarreraScene extends Scene {
 
         // Sector activo según posición real del jugador
         const p   = this.progresoVehiculo;
-        const sec = p < FRAC.s2 ? 'S1'
-                  : p < FRAC.s3 ? 'S2'
-                  : p < FRAC.s4 ? 'S3'
-                  :               'S4';
+        const sec = p < this.frac.s2 ? 'S1'
+                  : p < this.frac.s3 ? 'S2'
+                  : p < this.frac.s4 ? 'S3'
+                  :                    'S4';
         if (sec !== this.sectorVisual) {
             this.sectorVisual = sec;
             this.actualizarSectorCards(sec);
@@ -459,12 +478,12 @@ export class CarreraScene extends Scene {
     // Para circuitos con curvas más cerradas (anguloDeg > 180, radioMetros < 60)
     // basta con ajustar velocidadMinimaKmh en el JSON del circuito.
     private velocidadInstantanea(t: number): number {
-        const b   = [0, FRAC.s2, FRAC.s3, FRAC.s4, 1] as const;
+        const b   = [0, this.frac.s2, this.frac.s3, this.frac.s4, 1];
 
         let si = 3;
-        if      (t < FRAC.s2) si = 0;
-        else if (t < FRAC.s3) si = 1;
-        else if (t < FRAC.s4) si = 2;
+        if      (t < this.frac.s2) si = 0;
+        else if (t < this.frac.s3) si = 1;
+        else if (t < this.frac.s4) si = 2;
 
         const sLen  = b[si + 1] - b[si];
         const posIn = (t - b[si]) / sLen;       // 0–1 dentro del sector
@@ -521,13 +540,17 @@ export class CarreraScene extends Scene {
     //  band=+9 (jugador): en la entrada/salida de curva → wallDist ≈ 5 px → activo
     //  band=-4 (rival):   máx offset = 4 px             → wallDist ≈ 10 px → inactivo
     private factorBordePista(t: number, band: number): number {
+        // Wall-braking formula uses cos(2π·posIn) which is oval-specific.
+        // For polyline circuits the band offset is constant per segment → skip.
+        if (!this.wallBrakingEnabled) return 1.0;
+
         // Solo en sectores de curva (si = 1 → S2, si = 3 → S4)
-        const si = t < FRAC.s2 ? 0
-                 : t < FRAC.s3 ? 1
-                 : t < FRAC.s4 ? 2 : 3;
+        const si = t < this.frac.s2 ? 0
+                 : t < this.frac.s3 ? 1
+                 : t < this.frac.s4 ? 2 : 3;
         if (si !== 1 && si !== 3) return 1.0;
 
-        const boundaries = [0, FRAC.s2, FRAC.s3, FRAC.s4, 1] as const;
+        const boundaries = [0, this.frac.s2, this.frac.s3, this.frac.s4, 1];
         const posIn      = (t - boundaries[si]) / (boundaries[si + 1] - boundaries[si]);
 
         // Distancia lateral al borde = semiancho_pista − offset_del_banding
@@ -636,17 +659,24 @@ export class CarreraScene extends Scene {
 
     // ── Circuito ──────────────────────────────────────────────────────────────
     private crearCircuito() {
-        this.circuitoRenderer = new CircuitoRenderer(this);
+        if (this.circuitoId === 'circuito_beta') {
+            this.circuitoRenderer = new CircuitoBetaRenderer(this);
+        } else {
+            this.circuitoRenderer = new CircuitoRenderer(this);
+
+            // Speed labels — oval-specific positions
+            const segs     = this.circuito.sectores;
+            const cx       = (CX_L + CX_R) / 2;
+            const lblStyle = { fontSize: '11px', fontFamily: FONT, color: '#4a7898' };
+            this.add.text(cx,        CY + R + 10, `${segs[0].velocidadPuntaKmh} km/h`, lblStyle).setOrigin(0.5, 0);
+            this.add.text(cx,        CY - R - 24, `${segs[2].velocidadPuntaKmh} km/h`, lblStyle).setOrigin(0.5, 0);
+            this.add.text(CX_R - 68, CY - 9, `${segs[1].velocidadMinimaKmh ?? segs[1].velocidadPuntaKmh} km/h`, lblStyle);
+            this.add.text(CX_L + 10, CY - 9, `${segs[3].velocidadMinimaKmh ?? segs[3].velocidadPuntaKmh} km/h`, lblStyle);
+        }
+
+        // Store sector boundary fractions from the active renderer
+        this.frac = { ...this.circuitoRenderer.frac };
         this.circuitoRenderer.dibujarCircuito('S1');
-
-        const segs     = this.circuito.sectores;
-        const cx       = (CX_L + CX_R) / 2;
-        const lblStyle = { fontSize: '11px', fontFamily: FONT, color: '#4a7898' };
-
-        this.add.text(cx,         CY + R + 10, `${segs[0].velocidadPuntaKmh} km/h`, lblStyle).setOrigin(0.5, 0);
-        this.add.text(cx,         CY - R - 24, `${segs[2].velocidadPuntaKmh} km/h`, lblStyle).setOrigin(0.5, 0);
-        this.add.text(CX_R - 68, CY - 9, `${segs[1].velocidadMinimaKmh ?? segs[1].velocidadPuntaKmh} km/h`, lblStyle);
-        this.add.text(CX_L + 10, CY - 9, `${segs[3].velocidadMinimaKmh ?? segs[3].velocidadPuntaKmh} km/h`, lblStyle);
     }
 
     // ── Sector cards ──────────────────────────────────────────────────────────

@@ -81,5 +81,88 @@
       "nieve":     { "acceleration": 0.75, "topSpeed": 0.7,  "handling": 0.45 },
       "tormenta":  { "acceleration": 0.8,  "topSpeed": 0.72, "handling": 0.5  }
     }
+  },
+  {
+    "id": "circuito_beta",
+    "nombre": "Circuito Beta",
+    "tipo": "tecnico",
+    "longitudMetros": 2050,
+    "tipoSuperficie": "asfalto",
+    "vehiculoReferencia": {
+      "velocidadPromedioKmh": 92,
+      "tiempoVueltaSeg": 80
+    },
+    "sectores": [
+      {
+        "id": "S1",
+        "nombre": "Recta larga",
+        "tipo": "recta",
+        "longitudMetros": 680,
+        "velocidadEntradaKmh": 85,
+        "velocidadPuntaKmh": 130,
+        "velocidadSalidaKmh": 85,
+        "marcha": 6,
+        "tiempoEstimadoSeg": 24.0,
+        "modificadores": { "acceleration": 1.0, "topSpeed": 1.35, "handling": 0.4 },
+        "puntos": ["meta", "speed_trap"]
+      },
+      {
+        "id": "S2",
+        "nombre": "Sección técnica",
+        "tipo": "curva",
+        "longitudMetros": 510,
+        "radioMetros": 35,
+        "anguloDeg": 270,
+        "bankeoDeg": 2,
+        "velocidadEntradaKmh": 85,
+        "velocidadPuntaKmh": 90,
+        "velocidadMinimaKmh": 65,
+        "velocidadSalidaKmh": 85,
+        "marcha": 2,
+        "tiempoEstimadoSeg": 22.0,
+        "modificadores": { "acceleration": 0.4, "topSpeed": 0.5, "handling": 1.8 }
+      },
+      {
+        "id": "S3",
+        "nombre": "Curvas rápidas",
+        "tipo": "curva",
+        "longitudMetros": 430,
+        "radioMetros": 80,
+        "anguloDeg": 180,
+        "bankeoDeg": 4,
+        "velocidadEntradaKmh": 85,
+        "velocidadPuntaKmh": 105,
+        "velocidadMinimaKmh": 72,
+        "velocidadSalidaKmh": 85,
+        "marcha": 3,
+        "tiempoEstimadoSeg": 18.0,
+        "modificadores": { "acceleration": 0.6, "topSpeed": 0.8, "handling": 1.4 }
+      },
+      {
+        "id": "S4",
+        "nombre": "Regreso al pit",
+        "tipo": "recta",
+        "longitudMetros": 430,
+        "velocidadEntradaKmh": 85,
+        "velocidadPuntaKmh": 108,
+        "velocidadSalidaKmh": 85,
+        "marcha": 4,
+        "tiempoEstimadoSeg": 17.0,
+        "modificadores": { "acceleration": 0.9, "topSpeed": 1.1, "handling": 0.7 }
+      }
+    ],
+    "perfil": {
+      "pesoTopSpeed":      0.32,
+      "pesoHandling":      0.46,
+      "pesoAcceleration":  0.22,
+      "arquetipoBeneficiado": "tecnico",
+      "arquetipoPerjudicado": "velocista"
+    },
+    "clima": {
+      "despejado": { "acceleration": 1.0,  "topSpeed": 1.0,  "handling": 1.0  },
+      "lluvia":    { "acceleration": 0.85, "topSpeed": 0.75, "handling": 0.55 },
+      "nieve":     { "acceleration": 0.70, "topSpeed": 0.65, "handling": 0.40 },
+      "tormenta":  { "acceleration": 0.75, "topSpeed": 0.68, "handling": 0.45 }
+    }
   }
 ]
