@@ -97,16 +97,22 @@ export class CircuitoRenderer {
     }
 
     // ── Called every frame from CarreraScene.update() ─────────────────────────
-    // playerProg / rivalProg: independent track progress values [0, 1)
-    actualizarVehiculo(playerProg: number, rivalProg: number) {
+    // playerProg / rivalProg : independent track progress values [0, 1)
+    // playerBand / rivalBand : effective lateral band (may differ from defaults
+    //   during tailing/overtake maneuvers — defaults to the static constants)
+    actualizarVehiculo(
+        playerProg: number, rivalProg: number,
+        playerBand: number = BAND_PLAYER,
+        rivalBand:  number = BAND_RIVAL
+    ) {
         this.gfxVehiculo.clear();
 
         // Rival primero (se pinta debajo del jugador)
-        const rv = this.calcularPos(rivalProg, BAND_RIVAL);
+        const rv = this.calcularPos(rivalProg, rivalBand);
         this.dibujarCarro(rv.x, rv.y, rv.angulo, 0xff4422, 0x881100, 10, 5);
 
-        // Jugador encima
-        const p = this.calcularPos(playerProg, BAND_PLAYER);
+        // Jugador encima (siempre azul)
+        const p = this.calcularPos(playerProg, playerBand);
         this.dibujarCarro(p.x, p.y, p.angulo, 0x00ccff, 0x0055aa, 12, 6);
     }
 

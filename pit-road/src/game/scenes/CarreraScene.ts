@@ -26,6 +26,26 @@ const ZONE_A_PX = 140;
 const ZONE_B_PX =  55;
 const ZONE_C_PX =  22;
 
+// ── Tailing / maniobra de rebase ─────────────────────────────────────────────
+// Ciclo de vida:
+//   1. NONE     → TAILING  : carro de 2.° entra a <DRAFT_RANGE_PX del de 1.°
+//   2. TAILING  → ATTACKING: tras DRAFT_TIME_MS de seguimiento, lanza el ataque
+//   3. ATTACKING → NONE    : rebase completado (gap cambió de signo) o ataque fallido
+//
+// Los coches cambian su línea de carrera (band) suavemente:
+//   • TAILING:   el atacante mueve su band hacia el band del líder (misma línea lateral)
+//   • ATTACKING (recta): el atacante vuelve a su band contrario (swing hacia el otro lado)
+//   • ATTACKING (curva): el atacante se cierra hacia el interior (apex) y el defensor
+//                        se abre forzosamente hacia el exterior
+//
+// TODO (futuro): el duelIntensity puede servir de multiplicador de desgaste:
+//   tireWearRate  *= 1 + duelIntensity * TIRE_WEAR_ATTACK_K
+//   engineHeatRate *= 1 + duelIntensity * HEAT_ATTACK_K
+const DRAFT_RANGE_PX = 88;   // px: distancia para iniciar tailing (sobre recta)
+const DRAFT_EXIT_PX  = 115;  // px: pérdida del rebuffo → abortar tailing
+const DRAFT_TIME_MS  = 2400; // ms reales de tailing antes de lanzar el ataque
+const BAND_LERP_MS   = 320;  // ms en alcanzar el band objetivo (transición suave)
+
 // ── Duelo (ataque / defensa) ──────────────────────────────────────────────────
 // Cuando el 2.° está a menos de ATTACK_RANGE_PX del 1.°, ambos pilotos
 // elevan el ritmo: el atacante cancela el freno suave de Zona A y empuja,
@@ -74,6 +94,14 @@ export class CarreraScene extends Scene {
     // Se re-sortea cada vez que el rival entra en un nuevo sector.
     private rivalSectorFactor  = 1.0;
     private rivalCurrentSector = 'S1';
+
+    // ── Tailing / maniobra de rebase ──────────────────────────────────────────
+    private duelPhase: 'none' | 'tailing' | 'attacking' = 'none';
+    private duelTimer       = 0;   // ms reales acumulados en fase tailing
+    private duelInitGapSign = 0;   // signo del gap al lanzar el ataque (detecta rebase)
+    // Líneas de carrera efectivas (interpolan suavemente hacia el objetivo)
+    private playerEffBand = BAND_PLAYER;
+    private rivalEffBand  = BAND_RIVAL;
 
     private sectorVisual = 'S1';
 
@@ -129,6 +157,11 @@ export class CarreraScene extends Scene {
         this.metricBars       = [];
         this.metricTexts      = [];
         this.sectorVisual     = 'S1';
+        this.duelPhase        = 'none';
+        this.duelTimer        = 0;
+        this.duelInitGapSign  = 0;
+        this.playerEffBand    = BAND_PLAYER;
+        this.rivalEffBand     = BAND_RIVAL;
 
         // Velocidad media real del circuito (integración numérica del perfil)
         this.avgSectorSpeed = this.calcularVelocidadMedia();
@@ -158,8 +191,8 @@ export class CarreraScene extends Scene {
         // ── Detección de proximidad en espacio de píxeles (distancia euclídea) ──
         // Más fiable que la fracción de pista: captura colisiones en curvas donde
         // ambos carros están cerca en pantalla aunque tengan diferente progreso.
-        const playerPos = this.circuitoRenderer.calcularPos(this.progresoVehiculo, BAND_PLAYER);
-        const rivalPos  = this.circuitoRenderer.calcularPos(this.rivalProgress,    BAND_RIVAL);
+        const playerPos = this.circuitoRenderer.calcularPos(this.progresoVehiculo, this.playerEffBand);
+        const rivalPos  = this.circuitoRenderer.calcularPos(this.rivalProgress,    this.rivalEffBand);
         const dx = playerPos.x - rivalPos.x;
         const dy = playerPos.y - rivalPos.y;
         const pixelDist = Math.sqrt(dx * dx + dy * dy);
@@ -214,9 +247,100 @@ export class CarreraScene extends Scene {
             }
         }
 
+        // ── Tailing / maniobra de rebase ──────────────────────────────────────
+        // Helpers: ¿está el carro en recta?
+        const onStraight = (t: number) => t < FRAC.s2 || (t >= FRAC.s3 && t < FRAC.s4);
+        const pOnStraight = onStraight(this.progresoVehiculo);
+        const rOnStraight = onStraight(this.rivalProgress);
+        const bothStraight = pOnStraight && rOnStraight;
+
+        // Quién va detrás ahora mismo
+        const playerIsAttacker = gapSigned > 0;  // rival adelante → jugador ataca
+
+        // Bandas objetivo esta vuelta (se calculan en el switch)
+        let targetPB = BAND_PLAYER;
+        let targetRB = BAND_RIVAL;
+
+        switch (this.duelPhase) {
+
+            case 'none':
+                // El carro de atrás inicia tailing cuando está suficientemente cerca en recta
+                if (pixelDist < DRAFT_RANGE_PX && bothStraight) {
+                    this.duelPhase = 'tailing';
+                    this.duelTimer = 0;
+                }
+                break;
+
+            case 'tailing': {
+                this.duelTimer += delta;  // tiempo real (independiente del speedMult)
+
+                if (pixelDist > DRAFT_EXIT_PX) {
+                    // Perdió el rebuffo → vuelve a líneas normales
+                    this.duelPhase = 'none';
+                    break;
+                }
+                // Atacante se pega a la línea del líder (misma coordenada lateral)
+                if (playerIsAttacker) {
+                    targetPB = BAND_RIVAL;    // jugador entra en la línea interior del rival
+                    targetRB = BAND_RIVAL;
+                } else {
+                    targetRB = BAND_PLAYER;   // rival entra en la línea exterior del jugador
+                    targetPB = BAND_PLAYER;
+                }
+                // Con suficiente tiempo de rebuffo, lanzar el ataque
+                if (this.duelTimer >= DRAFT_TIME_MS) {
+                    this.duelPhase       = 'attacking';
+                    this.duelInitGapSign = Math.sign(gapSigned);
+                }
+                break;
+            }
+
+            case 'attacking': {
+                // Detectar rebase completado (gap cambió de signo respecto al inicio)
+                const gapFlipped = this.duelInitGapSign !== 0 &&
+                                   Math.sign(gapSigned) !== this.duelInitGapSign &&
+                                   Math.abs(gapSigned) > 0.005;
+                if (gapFlipped || pixelDist > DRAFT_EXIT_PX * 1.3) {
+                    this.duelPhase = 'none';
+                    break;
+                }
+
+                // ¿El atacante está entrando en curva? → maniobra de apertura de curva
+                const attackerInCurve = playerIsAttacker ? !pOnStraight : !rOnStraight;
+
+                if (attackerInCurve) {
+                    // Curva: atacante cierra al interior (band positivo grande = apex más tenso)
+                    //        defensor se abre al exterior (band más negativo = radio mayor)
+                    if (playerIsAttacker) {
+                        targetPB = BAND_PLAYER + 3;  // +12: curva más cerrada (dentro)
+                        targetRB = BAND_RIVAL  - 4;  // −8:  abierto al exterior
+                    } else {
+                        targetRB = BAND_PLAYER + 3;  // rival se mete por dentro
+                        targetPB = BAND_PLAYER - 4;  // jugador se abre
+                    }
+                } else {
+                    // Recta: atacante sale hacia el lado contrario del líder para adelantar
+                    // (swing: el atacante estaba en la línea del líder, ahora cambia de carril)
+                    if (playerIsAttacker) {
+                        targetPB = BAND_PLAYER;  // regresa a su carril natural (opuesto al rival)
+                        targetRB = BAND_RIVAL;
+                    } else {
+                        targetRB = BAND_RIVAL;
+                        targetPB = BAND_PLAYER;
+                    }
+                }
+                break;
+            }
+        }
+
+        // Interpolación suave de los bands efectivos hacia sus objetivos
+        const lerpF = Math.min(1, delta / BAND_LERP_MS);
+        this.playerEffBand += (targetPB - this.playerEffBand) * lerpF;
+        this.rivalEffBand  += (targetRB  - this.rivalEffBand)  * lerpF;
+
         // ── Borde de pista: freno cuando el carro roza el muro en curva ─────
-        const playerWallF = this.factorBordePista(this.progresoVehiculo, BAND_PLAYER);
-        const rivalWallF  = this.factorBordePista(this.rivalProgress,    BAND_RIVAL);
+        const playerWallF = this.factorBordePista(this.progresoVehiculo, this.playerEffBand);
+        const rivalWallF  = this.factorBordePista(this.rivalProgress,    this.rivalEffBand);
 
         // ── Progreso del jugador ──────────────────────────────────────────────
         const playerFactor = this.factorVelocidad(this.progresoVehiculo) * startupFactor * playerProxFactor * playerWallF * playerAttackBoost;
@@ -261,7 +385,10 @@ export class CarreraScene extends Scene {
         }
 
         // ── Render ────────────────────────────────────────────────────────────
-        this.circuitoRenderer.actualizarVehiculo(this.progresoVehiculo, this.rivalProgress);
+        this.circuitoRenderer.actualizarVehiculo(
+            this.progresoVehiculo, this.rivalProgress,
+            this.playerEffBand, this.rivalEffBand
+        );
 
         // Sector activo según posición real del jugador
         const p   = this.progresoVehiculo;
