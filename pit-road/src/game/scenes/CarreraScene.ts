@@ -189,8 +189,7 @@ export class CarreraScene extends Scene {
         const gapSigned = rawGap > 0.5 ? rawGap - 1 : rawGap;
 
         // ── Detección de proximidad en espacio de píxeles (distancia euclídea) ──
-        // Más fiable que la fracción de pista: captura colisiones en curvas donde
-        // ambos carros están cerca en pantalla aunque tengan diferente progreso.
+        // Usa los bands efectivos actuales (cambian durante maniobras de tailing/rebase).
         const playerPos = this.circuitoRenderer.calcularPos(this.progresoVehiculo, this.playerEffBand);
         const rivalPos  = this.circuitoRenderer.calcularPos(this.rivalProgress,    this.rivalEffBand);
         const dx = playerPos.x - rivalPos.x;
@@ -200,28 +199,43 @@ export class CarreraScene extends Scene {
         let playerProxFactor = 1.0;
         let rivalProxFactor  = 1.0;
 
-        if (pixelDist < ZONE_A_PX) {
-            // ¿Quién va detrás? gapSigned > 0 → rival adelante → jugador sigue
-            if (pixelDist < ZONE_C_PX) {
-                // Zona C — colisión/emergencia: freno fuerte hasta 80 % de reducción
-                const raw    = Math.max(0, (ZONE_C_PX - pixelDist) / ZONE_C_PX);
+        // Sólo activar si hay una diferencia real de progreso:
+        // • Evita que en el arranque (ambos en t≈0, gapSigned≈0) se aplique freno
+        //   de emergencia por la mera separación lateral de 13 px entre bandas.
+        // • Evita que el carro "de atrás" sea el incorrecto cuando van empatados.
+        if (Math.abs(gapSigned) > 0.001 && pixelDist < ZONE_A_PX) {
+
+            // Umbral de colisión adaptado al modo de duelo:
+            //   • Libre     : 22 px — cars convergen desde líneas distintas
+            //   • Tailing   : 11 px — van directamente en fila; distancia segura = largo de carro
+            const zoneC = this.duelPhase === 'tailing' ? 11 : ZONE_C_PX;
+
+            if (pixelDist < zoneC) {
+                // Zona C — emergencia: freno fuerte proporcional a la cercanía (máx 80 %)
+                const raw    = Math.max(0, (zoneC - pixelDist) / zoneC);
                 const brakeF = Math.max(0.20, 1 - raw * 0.80);
                 if (gapSigned > 0) playerProxFactor = brakeF;
                 else               rivalProxFactor  = brakeF;
+
             } else if (pixelDist < ZONE_B_PX) {
-                // Zona B — rebuffo: el seguidor gana hasta +3.5 % de velocidad
-                const raw       = 1 - (pixelDist - ZONE_C_PX) / (ZONE_B_PX - ZONE_C_PX);
+                // Zona B — rebuffo/slipstream: seguidor gana hasta +3.5 %
+                const raw       = 1 - (pixelDist - zoneC) / (ZONE_B_PX - zoneC);
                 const slipBoost = 1 + raw * 0.035;
                 if (gapSigned > 0) playerProxFactor = slipBoost;
                 else               rivalProxFactor  = slipBoost;
-            } else {
-                // Zona A — seguimiento suave: coseno ease-in, máx 8 % de reducción
+
+            } else if (this.duelPhase === 'none') {
+                // Zona A — freno suave: SÓLO en carrera libre (sin duelo)
+                // En tailing/attacking el atacante se acerca intencionalmente;
+                // el bloque de ataque/defensa gestiona la presión de velocidad.
                 const raw       = 1 - (pixelDist - ZONE_B_PX) / (ZONE_A_PX - ZONE_B_PX);
                 const intensity = 0.5 - 0.5 * Math.cos(raw * Math.PI);
                 const brakeF    = Math.max(0.92, 1 - intensity * 0.08);
                 if (gapSigned > 0) playerProxFactor = brakeF;
                 else               rivalProxFactor  = brakeF;
             }
+            // Durante duelo en rango Zona A (55–140 px): sin freno suave;
+            // el bloque ataque/defensa y la separación natural de bands lo controlan.
         }
 
         // ── Duelo: ataque del 2.° / defensa del 1.° ──────────────────────────
@@ -264,18 +278,21 @@ export class CarreraScene extends Scene {
         switch (this.duelPhase) {
 
             case 'none':
-                // El carro de atrás inicia tailing cuando está suficientemente cerca en recta
-                if (pixelDist < DRAFT_RANGE_PX && bothStraight) {
+                // Sólo inicia tailing cuando existe una brecha real de progreso.
+                // Condición |gapSigned| > 0.01 (~14 m) evita que arranque en el
+                // momento exacto del inicio de carrera cuando ambos van en t≈0.
+                if (pixelDist < DRAFT_RANGE_PX && bothStraight && Math.abs(gapSigned) > 0.01) {
                     this.duelPhase = 'tailing';
                     this.duelTimer = 0;
                 }
                 break;
 
             case 'tailing': {
-                this.duelTimer += delta;  // tiempo real (independiente del speedMult)
+                this.duelTimer += delta;  // tiempo real (sin speedMult)
 
-                if (pixelDist > DRAFT_EXIT_PX) {
-                    // Perdió el rebuffo → vuelve a líneas normales
+                // Abortar si el rebuffo se pierde O si los carros empatan en progreso
+                // (van lado a lado → no tiene sentido seguir en modo tailing)
+                if (pixelDist > DRAFT_EXIT_PX || Math.abs(gapSigned) < 0.005) {
                     this.duelPhase = 'none';
                     break;
                 }
