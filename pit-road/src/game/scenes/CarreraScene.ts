@@ -55,6 +55,11 @@ export class CarreraScene extends Scene {
     private progresoVehiculo = 0;
     private rivalProgress    = 0;
 
+    // Factor de rendimiento del rival en el sector actual (probabilístico)
+    // Se re-sortea cada vez que el rival entra en un nuevo sector.
+    private rivalSectorFactor  = 1.0;
+    private rivalCurrentSector = 'S1';
+
     private sectorVisual = 'S1';
 
     // Startup: ms reales desde el inicio (solo vuelta 0)
@@ -96,9 +101,11 @@ export class CarreraScene extends Scene {
         this.estado           = this.crearEstadoInicial();
         this.speedMult        = 1;
         this.juegoTerminado   = false;
-        this.progresoVehiculo = 0;
-        this.rivalProgress    = 0;
-        this.startupTimer     = 0;
+        this.progresoVehiculo  = 0;
+        this.rivalProgress     = 0;
+        this.startupTimer      = 0;
+        this.rivalSectorFactor  = 1.0;
+        this.rivalCurrentSector = 'S1';
         this.speedBtnBgs      = [];
         this.sectorCardBg     = [];
         this.sectorCardTxt    = [];
@@ -159,12 +166,36 @@ export class CarreraScene extends Scene {
             if (this.juegoTerminado) return;
         }
 
-        // ── Progreso del rival (rubber-band + freno de proximidad) ────────────
-        const targetGap  = this.estado.posicion === 2 ? 0.04 : -0.04;
-        const correction = (targetGap - gapSigned) * 0.3;
+        // ── Progreso del rival (probabilístico por sector + tope ±5%) ────────
+        // Al entrar en cada sector se sortea un factor de rendimiento:
+        //   CURVA: 55% buen trazo (98–108%), 45% mal trazo (74–92%)
+        //   RECTA: varianza pequeña (94–106%) — diferencias de aceleración
+        const rSec = this.rivalProgress < FRAC.s2 ? 'S1'
+                   : this.rivalProgress < FRAC.s3 ? 'S2'
+                   : this.rivalProgress < FRAC.s4 ? 'S3'
+                   :                                'S4';
+        if (rSec !== this.rivalCurrentSector) {
+            this.rivalCurrentSector = rSec;
+            const esCurva = rSec === 'S2' || rSec === 'S4';
+            if (esCurva) {
+                this.rivalSectorFactor = Math.random() < 0.55
+                    ? 0.98 + Math.random() * 0.10   // buen trazo: 98–108 %
+                    : 0.74 + Math.random() * 0.18;  // mal trazo:  74–92 %
+            } else {
+                this.rivalSectorFactor = 0.94 + Math.random() * 0.12; // 94–106 %
+            }
+        }
+
         const rivalFactor = this.factorVelocidad(this.rivalProgress)
-            * (1 + correction) * startupFactor * rivalProxFactor;
+            * this.rivalSectorFactor * startupFactor * rivalProxFactor;
         this.rivalProgress = (this.rivalProgress + delta * this.speedMult * rivalFactor / DELAY_BASE_MS + 1) % 1;
+
+        // Tope duro: el rival nunca puede separarse más de ±5 % del jugador
+        const clampRaw = (this.rivalProgress - this.progresoVehiculo + 1) % 1;
+        const clampGap = clampRaw > 0.5 ? clampRaw - 1 : clampRaw;
+        if (Math.abs(clampGap) > 0.05) {
+            this.rivalProgress = (this.progresoVehiculo + Math.sign(clampGap) * 0.05 + 1) % 1;
+        }
 
         // ── Render ────────────────────────────────────────────────────────────
         this.circuitoRenderer.actualizarVehiculo(this.progresoVehiculo, this.rivalProgress);
