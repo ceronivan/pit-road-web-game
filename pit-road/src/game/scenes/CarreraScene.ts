@@ -19,9 +19,10 @@ type SpeedMult   = (typeof SPEED_OPTS)[number];
 const STARTUP_MS = 3200;
 
 // Distancias de seguridad entre carros (fracción del circuito)
-// ≈ 48 m → empieza el freno de proximidad; ≈ 16 m → freno máximo
-const PROX_GAP   = 0.035;
-const SAFETY_GAP = 0.012;
+// ≈ 109 m → empieza a notar el carro adelante (zona larga, freno suave)
+// ≈  34 m → distancia objetivo mínima (intensidad máxima: solo -18 % de vel.)
+const PROX_GAP   = 0.080;
+const SAFETY_GAP = 0.025;
 
 // ── Layout (960×540) ──────────────────────────────────────────────────────────
 const HEADER_H  = 44;
@@ -148,9 +149,12 @@ export class CarreraScene extends Scene {
         let rivalProxFactor  = 1.0;
 
         if (absGap > 0.001 && absGap < PROX_GAP) {
-            // intensity: 0 en PROX_GAP, 1 en SAFETY_GAP (y más acá)
-            const intensity = Math.max(0, 1 - (absGap - SAFETY_GAP) / (PROX_GAP - SAFETY_GAP));
-            const brakeF    = Math.max(0.50, 1 - intensity * 0.50);  // mín 50% de vel.
+            // raw: 0 cuando está a PROX_GAP de distancia, 1 cuando está a SAFETY_GAP
+            const raw = Math.max(0, 1 - (absGap - SAFETY_GAP) / (PROX_GAP - SAFETY_GAP));
+            // Curva coseno: entrada muy suave, presión creciente al acercarse
+            const intensity = 0.5 - 0.5 * Math.cos(raw * Math.PI);
+            // Reducción máxima de solo 18 % → nunca hay un frenazo brusco
+            const brakeF = Math.max(0.82, 1 - intensity * 0.18);
             if (gapSigned > 0) playerProxFactor = brakeF;  // jugador sigue al rival
             else                rivalProxFactor  = brakeF;  // rival sigue al jugador
         }
