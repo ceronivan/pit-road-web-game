@@ -26,6 +26,18 @@ const ZONE_A_PX = 140;
 const ZONE_B_PX =  55;
 const ZONE_C_PX =  22;
 
+// ── Duelo (ataque / defensa) ──────────────────────────────────────────────────
+// Cuando el 2.° está a menos de ATTACK_RANGE_PX del 1.°, ambos pilotos
+// elevan el ritmo: el atacante cancela el freno suave de Zona A y empuja,
+// el líder responde con una aceleración defensiva.
+//
+// TODO (futuro): mapear estos factores a desgaste adicional de llantas/motor:
+//   wearMultiplier = 1 + (attackBoost - 1) * WEAR_SENSITIVITY
+//   heatMultiplier = 1 + (defenseBoost - 1) * HEAT_SENSITIVITY
+const ATTACK_RANGE_PX = 100;  // px: radio de activación del duelo (≈ entre Zona A y B)
+const ATTACK_BOOST    = 0.12; // +12 % máx para el atacante (2.° lugar)
+const DEFENSE_BOOST   = 0.08; // + 8 % máx para el defensor (1.er lugar)
+
 // ── Layout (960×540) ──────────────────────────────────────────────────────────
 const HEADER_H  = 44;
 const CARDS_Y   = 430;
@@ -179,12 +191,35 @@ export class CarreraScene extends Scene {
             }
         }
 
+        // ── Duelo: ataque del 2.° / defensa del 1.° ──────────────────────────
+        // Solo activo entre Zona B y el radio de ataque (55–100 px):
+        //   • El atacante cancela el freno suave de Zona A y empuja al límite.
+        //   • El líder también acelera para no perder la posición.
+        //   • En Zona B / Zona C prevalece la lógica aerodinámica y de colisión.
+        let playerAttackBoost = 1.0;
+        let rivalAttackBoost  = 1.0;
+
+        if (pixelDist >= ZONE_B_PX && pixelDist < ATTACK_RANGE_PX) {
+            const intensity = 1 - (pixelDist - ZONE_B_PX) / (ATTACK_RANGE_PX - ZONE_B_PX);
+            if (gapSigned > 0) {
+                // Rival adelante → jugador ataca, rival defiende
+                playerAttackBoost = 1 + intensity * ATTACK_BOOST;
+                rivalAttackBoost  = 1 + intensity * DEFENSE_BOOST;
+                playerProxFactor  = 1.0;   // cancela freno suave de Zona A
+            } else {
+                // Jugador adelante → rival ataca, jugador defiende
+                rivalAttackBoost  = 1 + intensity * ATTACK_BOOST;
+                playerAttackBoost = 1 + intensity * DEFENSE_BOOST;
+                rivalProxFactor   = 1.0;   // cancela freno suave de Zona A
+            }
+        }
+
         // ── Borde de pista: freno cuando el carro roza el muro en curva ─────
         const playerWallF = this.factorBordePista(this.progresoVehiculo, BAND_PLAYER);
         const rivalWallF  = this.factorBordePista(this.rivalProgress,    BAND_RIVAL);
 
         // ── Progreso del jugador ──────────────────────────────────────────────
-        const playerFactor = this.factorVelocidad(this.progresoVehiculo) * startupFactor * playerProxFactor * playerWallF;
+        const playerFactor = this.factorVelocidad(this.progresoVehiculo) * startupFactor * playerProxFactor * playerWallF * playerAttackBoost;
         this.progresoVehiculo += delta * this.speedMult * playerFactor / DELAY_BASE_MS;
 
         // Cruce de la línea de meta → nueva vuelta
@@ -215,7 +250,7 @@ export class CarreraScene extends Scene {
         }
 
         const rivalFactor = this.factorVelocidad(this.rivalProgress)
-            * this.rivalSectorFactor * startupFactor * rivalProxFactor * rivalWallF;
+            * this.rivalSectorFactor * startupFactor * rivalProxFactor * rivalWallF * rivalAttackBoost;
         this.rivalProgress = (this.rivalProgress + delta * this.speedMult * rivalFactor / DELAY_BASE_MS + 1) % 1;
 
         // Tope duro: el rival nunca puede separarse más de ±5 % del jugador
