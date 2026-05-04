@@ -681,8 +681,6 @@ export class CarreraScene extends Scene {
 
     // ── Sector cards ──────────────────────────────────────────────────────────
     private crearSectorCards() {
-        const nombres = ['Recta principal', 'Curva norte', 'Recta trasera', 'Curva sur'];
-
         this.circuito.sectores.forEach((seg, i) => {
             const x     = CARD_PAD + i * (CARD_W + CARD_GAP);
             const color = SECTOR_COLOR[seg.id];
@@ -700,8 +698,9 @@ export class CarreraScene extends Scene {
                     fontSize: '13px', fontFamily: FONT, color: hexC, fontStyle: 'bold',
                 })
             );
+            // Use sector name from circuito data (works for both Alfa and Beta)
             this.sectorCardName.push(
-                this.add.text(x + 46, CARDS_Y + 13, nombres[i], estilos.muted)
+                this.add.text(x + 46, CARDS_Y + 13, seg.nombre, estilos.muted)
             );
             this.sectorCardSpeed.push(
                 this.add.text(x + 12, CARDS_Y + 33, `${seg.velocidadPuntaKmh} km/h  ·  G${seg.marcha}`, {
