@@ -57,6 +57,18 @@ const S4_IDX = 13;
 const TW   = 28;
 const FONT = "'Open Sans', sans-serif";
 
+// ── Corner rounding ────────────────────────────────────────────────────────────
+// How many px to cut from each side of a waypoint corner for the bezier curve
+const CORNER_RADIUS = 28;
+
+// ── Sector waypoint sub-paths (open polylines, endpoints = sector boundaries) ─
+const SECTOR_PTS: Record<string, [number, number][]> = {
+    S1: [PTS[0],  PTS[1],  PTS[2],  PTS[3],  PTS[4]],
+    S2: [PTS[4],  PTS[5],  PTS[6],  PTS[7],  PTS[8],  PTS[9]],
+    S3: [PTS[9],  PTS[10], PTS[11], PTS[12], PTS[13]],
+    S4: [PTS[13], PTS[14], PTS[15], PTS[0]],
+};
+
 export const SECTOR_COLOR_BETA: Record<string, number> = {
     S1: 0x50c860,
     S2: 0x5070e0,
@@ -267,24 +279,117 @@ export class CircuitoBetaRenderer {
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
+
+    /**
+     * Builds a smooth polyline by rounding each waypoint corner with a
+     * quadratic Bézier curve.
+     *
+     * closed = true  → all waypoints are corners (loop).
+     * closed = false → first and last waypoints are open endpoints.
+     *
+     * Each corner is approximated as N `steps` line segments so only the
+     * standard moveTo/lineTo/strokePoints API is needed.
+     */
+    private roundedPolyline(
+        pts: readonly [number, number][],
+        radius: number,
+        closed: boolean,
+        steps = 10,
+    ): { x: number; y: number }[] {
+        const N = pts.length;
+        if (N < 2) return pts.map(p => ({ x: p[0], y: p[1] }));
+
+        type Corner = {
+            ex: number; ey: number;  // entry  (r before corner)
+            cx: number; cy: number;  // control (the original waypoint)
+            fx: number; fy: number;  // exit   (r after corner)
+        };
+
+        const buildCorner = (i: number): Corner | null => {
+            const curr = pts[i];
+            const prevIdx = closed ? (i - 1 + N) % N : i - 1;
+            const nextIdx = closed ? (i + 1) % N     : i + 1;
+            if (prevIdx < 0 || nextIdx >= N) return null;
+
+            const prev = pts[prevIdx];
+            const next = pts[nextIdx];
+            const dx1 = curr[0] - prev[0], dy1 = curr[1] - prev[1];
+            const len1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
+            const dx2 = next[0] - curr[0], dy2 = next[1] - curr[1];
+            const len2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
+            if (len1 < 1 || len2 < 1) return null;
+
+            const r = Math.min(radius, len1 * 0.45, len2 * 0.45);
+            return {
+                ex: curr[0] - (dx1 / len1) * r, ey: curr[1] - (dy1 / len1) * r,
+                cx: curr[0], cy: curr[1],
+                fx: curr[0] + (dx2 / len2) * r, fy: curr[1] + (dy2 / len2) * r,
+            };
+        };
+
+        const addBezier = (out: { x: number; y: number }[], c: Corner) => {
+            for (let s = 1; s <= steps; s++) {
+                const t = s / steps, mt = 1 - t;
+                out.push({
+                    x: mt * mt * c.ex + 2 * mt * t * c.cx + t * t * c.fx,
+                    y: mt * mt * c.ey + 2 * mt * t * c.cy + t * t * c.fy,
+                });
+            }
+        };
+
+        const result: { x: number; y: number }[] = [];
+
+        if (closed) {
+            // Start at the exit of the first rounded corner so the loop
+            // closes seamlessly without relying on closeShape.
+            const c0 = buildCorner(0)!;
+            result.push({ x: c0.fx, y: c0.fy });
+
+            for (let i = 1; i < N; i++) {
+                const c = buildCorner(i);
+                if (!c) { result.push({ x: pts[i][0], y: pts[i][1] }); }
+                else    { result.push({ x: c.ex, y: c.ey }); addBezier(result, c); }
+            }
+
+            // Wrap: line to entry of c0, then the bezier back to c0.fx
+            result.push({ x: c0.ex, y: c0.ey });
+            addBezier(result, c0);   // last point == first point → perfectly closed
+
+        } else {
+            // Open path: endpoint waypoints kept as-is, only interior corners rounded
+            result.push({ x: pts[0][0], y: pts[0][1] });
+
+            for (let i = 1; i < N - 1; i++) {
+                const c = buildCorner(i);
+                if (!c) { result.push({ x: pts[i][0], y: pts[i][1] }); }
+                else    { result.push({ x: c.ex, y: c.ey }); addBezier(result, c); }
+            }
+
+            result.push({ x: pts[N - 1][0], y: pts[N - 1][1] });
+        }
+
+        return result;
+    }
+
     private trazarPista(g: GameObjects.Graphics, width: number, color: number, alpha: number) {
         g.lineStyle(width, color, alpha);
-        g.beginPath();
-        g.moveTo(PTS[0][0], PTS[0][1]);
-        for (let i = 1; i < PTS.length; i++) g.lineTo(PTS[i][0], PTS[i][1]);
-        g.closePath();
-        g.strokePath();
+        const pts = this.roundedPolyline(PTS, CORNER_RADIUS, true);
+        this.tracePoints(g, pts);
     }
 
     private trazarSector(g: GameObjects.Graphics, sector: string) {
+        const spts = SECTOR_PTS[sector];
+        const pts  = this.roundedPolyline(spts, CORNER_RADIUS, false);
+        this.tracePoints(g, pts);
+    }
+
+    /** Draws a pre-computed point list using beginPath / moveTo / lineTo / strokePath. */
+    private tracePoints(g: GameObjects.Graphics, pts: { x: number; y: number }[]) {
+        if (pts.length < 2) return;
         g.beginPath();
-        let started = false;
-        for (const seg of this.segs) {
-            if (seg.sector !== sector) { started = false; continue; }
-            if (!started) { g.moveTo(seg.x1, seg.y1); started = true; }
-            g.lineTo(seg.x2, seg.y2);
-        }
-        if (started) g.strokePath();
+        g.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length; i++) g.lineTo(pts[i].x, pts[i].y);
+        g.strokePath();
     }
 
     private dibujarCarro(
