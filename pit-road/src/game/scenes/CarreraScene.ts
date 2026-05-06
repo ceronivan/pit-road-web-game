@@ -177,8 +177,9 @@ export class CarreraScene extends Scene {
         this.straightSectors  = new Set(
             this.circuito.sectores.filter(s => s.tipo === 'recta').map(s => s.id)
         );
-        // Wall braking only valid for the oval (cosine formula is oval-specific)
-        this.wallBrakingEnabled = this.circuitoId === 'circuito_alfa';
+        // Wall-braking uses band · cos(2π · posInSector) — valid for any circuit
+        // now that CircuitoBetaRenderer also applies cosine band modulation in curves.
+        this.wallBrakingEnabled = true;
 
         // Velocidad media real del circuito (integración numérica del perfil)
         this.avgSectorSpeed = this.calcularVelocidadMedia();
@@ -539,16 +540,20 @@ export class CarreraScene extends Scene {
     //
     //  band=+9 (jugador): en la entrada/salida de curva → wallDist ≈ 5 px → activo
     //  band=-4 (rival):   máx offset = 4 px             → wallDist ≈ 10 px → inactivo
+    //
+    // Funciona para cualquier circuito: usa straightSectors (del JSON) en lugar de
+    // índices hardcodeados al óvalo Alfa.  El cálculo es idéntico porque ambos
+    // renderers aplican  band · cos(2π · posInSector)  en los sectores de curva.
     private factorBordePista(t: number, band: number): number {
-        // Wall-braking formula uses cos(2π·posIn) which is oval-specific.
-        // For polyline circuits the band offset is constant per segment → skip.
         if (!this.wallBrakingEnabled) return 1.0;
 
-        // Solo en sectores de curva (si = 1 → S2, si = 3 → S4)
         const si = t < this.frac.s2 ? 0
                  : t < this.frac.s3 ? 1
                  : t < this.frac.s4 ? 2 : 3;
-        if (si !== 1 && si !== 3) return 1.0;
+
+        // Skip if this is a straight sector (generalised — no longer Alfa-specific)
+        const sectorId = ['S1', 'S2', 'S3', 'S4'][si];
+        if (this.straightSectors.has(sectorId)) return 1.0;
 
         const boundaries = [0, this.frac.s2, this.frac.s3, this.frac.s4, 1];
         const posIn      = (t - boundaries[si]) / (boundaries[si + 1] - boundaries[si]);
@@ -660,7 +665,9 @@ export class CarreraScene extends Scene {
     // ── Circuito ──────────────────────────────────────────────────────────────
     private crearCircuito() {
         if (this.circuitoId === 'circuito_beta') {
-            this.circuitoRenderer = new CircuitoBetaRenderer(this);
+            // Pass straight-sector IDs so the renderer can apply cosine band
+            // modulation only in curve sectors (mirrors CircuitoRenderer behaviour).
+            this.circuitoRenderer = new CircuitoBetaRenderer(this, this.straightSectors);
         } else {
             this.circuitoRenderer = new CircuitoRenderer(this);
 

@@ -107,7 +107,20 @@ export class CircuitoBetaRenderer {
     private segs: Seg[] = [];
     private totalLen = 0;
 
-    constructor(scene: Scene) {
+    // ── Racing-line cornering (mirrors CircuitoRenderer) ──────────────────────
+    // curveSectors: sectors where band is cosine-modulated (outer→apex→outer).
+    // sectorBounds: cumulative start + length for each sector (needed to compute
+    //               posInSector ∈ [0,1] inside calcularPos).
+    private curveSectors: Set<string> = new Set();
+    private sectorBounds: Map<string, { start: number; len: number }> = new Map();
+
+    /**
+     * @param straightSectors IDs of sectors whose tipo === 'recta'.
+     *   Derived from the circuit JSON in CarreraScene and passed in so the
+     *   renderer never needs to import the data layer directly.
+     *   Default covers the Beta circuit's two straight sectors.
+     */
+    constructor(scene: Scene, straightSectors: Set<string> = new Set(['S1', 'S4'])) {
         // Layering order: grid → base track → sector overlay → vehicles
         this.gfxGrid     = scene.add.graphics();
         this.gfxBase     = scene.add.graphics();
@@ -148,6 +161,21 @@ export class CircuitoBetaRenderer {
             s3: fracAt(S3_IDX),
             s4: fracAt(S4_IDX),
         };
+
+        // ── Racing-line: curve sectors + sector cumulative bounds ─────────────
+        // curveSectors = all sector IDs NOT in straightSectors.
+        this.curveSectors = new Set(
+            ['S1', 'S2', 'S3', 'S4'].filter(s => !straightSectors.has(s))
+        );
+        // sectorBounds accumulates start-cumLen and total-len for each sector
+        // so calcularPos can derive posInSector ∈ [0,1] without extra lookups.
+        for (const seg of this.segs) {
+            if (!this.sectorBounds.has(seg.sector)) {
+                this.sectorBounds.set(seg.sector, { start: seg.cumLen, len: 0 });
+            }
+            const sb = this.sectorBounds.get(seg.sector)!;
+            sb.len = seg.cumLen + seg.len - sb.start;
+        }
 
         // START label next to P0 (main straight runs vertically upward from here)
         const [sx, sy] = PTS[0];
@@ -248,9 +276,19 @@ export class CircuitoBetaRenderer {
 
     // ── Position along the track ──────────────────────────────────────────────
     // t    ∈ [0, 1) — normalised global track progress
-    // band — signed lateral offset in pixels
+    // band — signed lateral offset in pixels (raw, before cornering modulation)
     //        (+) = left of travel direction (outer on left-handers)
     //        (−) = right of travel direction (inner on left-handers)
+    //
+    // Racing-line behaviour (mirrors CircuitoRenderer):
+    //   Straight sectors → band is constant (no modulation).
+    //   Curve sectors    → band is cosine-modulated along the sector:
+    //     effectiveBand = band · cos(2π · posInSector)
+    //     posInSector = 0   → full band (outer-entry wall side)
+    //     posInSector = 0.5 → −band    (inner apex)
+    //     posInSector = 1   → full band (outer-exit wall side)
+    //   A positive band (player, +9) traces: outer entry → inside apex → outer exit.
+    //   A negative band (rival,  −4) traces: inner entry → outside apex → inner exit.
     calcularPos(t: number, band = 0): { x: number; y: number; angulo: number } {
         const tW     = ((t % 1) + 1) % 1;
         const target = tW * this.totalLen;
@@ -269,11 +307,21 @@ export class CircuitoBetaRenderer {
         const cx = seg.x1 + tLocal * (seg.x2 - seg.x1);
         const cy = seg.y1 + tLocal * (seg.y2 - seg.y1);
 
+        // ── Cosine band modulation for curve sectors ──────────────────────────
+        let effectiveBand = band;
+        if (this.curveSectors.has(seg.sector)) {
+            const sb = this.sectorBounds.get(seg.sector)!;
+            const posInSector = sb.len > 0
+                ? Math.max(0, Math.min(1, (target - sb.start) / sb.len))
+                : 0;
+            effectiveBand = band * Math.cos(2 * Math.PI * posInSector);
+        }
+
         // Perpendicular offset (ang + π/2 = left side of travel direction)
         const perp = seg.ang + Math.PI / 2;
         return {
-            x:      cx + band * Math.cos(perp),
-            y:      cy + band * Math.sin(perp),
+            x:      cx + effectiveBand * Math.cos(perp),
+            y:      cy + effectiveBand * Math.sin(perp),
             angulo: seg.ang,
         };
     }
