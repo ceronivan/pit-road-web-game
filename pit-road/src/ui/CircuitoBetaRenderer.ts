@@ -58,16 +58,13 @@ const TW   = 28;
 const FONT = "'Open Sans', sans-serif";
 
 // ── Corner rounding ────────────────────────────────────────────────────────────
-// How many px to cut from each side of a waypoint corner for the bezier curve
-const CORNER_RADIUS = 28;
+// Pixels cut from each side of a waypoint corner for the quadratic-bezier rounding.
+// Larger values = smoother corners; effective radius is min(CORNER_RADIUS, 0.45·segLen).
+const CORNER_RADIUS = 50;
 
-// ── Sector waypoint sub-paths (open polylines, endpoints = sector boundaries) ─
-const SECTOR_PTS: Record<string, [number, number][]> = {
-    S1: [PTS[0],  PTS[1],  PTS[2],  PTS[3],  PTS[4]],
-    S2: [PTS[4],  PTS[5],  PTS[6],  PTS[7],  PTS[8],  PTS[9]],
-    S3: [PTS[9],  PTS[10], PTS[11], PTS[12], PTS[13]],
-    S4: [PTS[13], PTS[14], PTS[15], PTS[0]],
-};
+// Number of line segments that approximate each bezier curve.
+// Also used as a constant when slicing the precomputed full path (see sectorSlice).
+const CURVE_STEPS = 10;
 
 export const SECTOR_COLOR_BETA: Record<string, number> = {
     S1: 0x50c860,
@@ -113,6 +110,11 @@ export class CircuitoBetaRenderer {
     //               posInSector ∈ [0,1] inside calcularPos).
     private curveSectors: Set<string> = new Set();
     private sectorBounds: Map<string, { start: number; len: number }> = new Map();
+
+    // ── Precomputed full rounded path (used for both base track and sector slices)
+    // Storing it once avoids re-running roundedPolyline on every dibujarCircuito call.
+    // Sector overlays extract exact sub-arrays so their endpoints are already rounded.
+    private fullPath: { x: number; y: number }[] = [];
 
     /**
      * @param straightSectors IDs of sectors whose tipo === 'recta'.
@@ -176,6 +178,9 @@ export class CircuitoBetaRenderer {
             const sb = this.sectorBounds.get(seg.sector)!;
             sb.len = seg.cumLen + seg.len - sb.start;
         }
+
+        // Precompute the full rounded path once; trazarPista and sectorSlice reuse it.
+        this.fullPath = this.roundedPolyline(PTS, CORNER_RADIUS, true, CURVE_STEPS);
 
         // START label next to P0 (main straight runs vertically upward from here)
         const [sx, sy] = PTS[0];
@@ -419,16 +424,60 @@ export class CircuitoBetaRenderer {
         return result;
     }
 
+    // ── Track / sector drawing ────────────────────────────────────────────────
+
     private trazarPista(g: GameObjects.Graphics, width: number, color: number, alpha: number) {
         g.lineStyle(width, color, alpha);
-        const pts = this.roundedPolyline(PTS, CORNER_RADIUS, true);
-        this.tracePoints(g, pts);
+        this.tracePoints(g, this.fullPath);
     }
 
     private trazarSector(g: GameObjects.Graphics, sector: string) {
-        const spts = SECTOR_PTS[sector];
-        const pts  = this.roundedPolyline(spts, CORNER_RADIUS, false);
-        this.tracePoints(g, pts);
+        this.tracePoints(g, this.sectorSlice(sector));
+    }
+
+    /**
+     * Extracts the portion of the precomputed full rounded path that belongs to
+     * one sector, INCLUDING the rounded corner at the sector's START boundary.
+     *
+     * Each corner in the full path occupies exactly (CURVE_STEPS + 1) slots:
+     *   slot 0 of corner k  → entry point E_k
+     *   slots 1..STEPS      → bezier approximation
+     *   last slot           → exit point F_k   (= first slot of the next straight)
+     *
+     * Layout of fullPath (N=16, STEPS=10, span S=11):
+     *   [0]        = F_0  (exit of waypoint-0 corner)
+     *   [1]        = E_1  … [11] = F_1
+     *   [12]       = E_2  … [22] = F_2
+     *   …
+     *   [k*S]      = F_k  (k ≥ 1)
+     *   [1+(k-1)*S]= E_k  (k ≥ 1)
+     *   [1+(N-1)*S]= E_0  (wrap — entry of the closing corner)
+     *   [N*S]      = F_0  (identical to [0])
+     *
+     * Each sector slice starts at E_sectorStartWaypoint and ends at
+     * E_sectorEndWaypoint (inclusive), so the START corner is included and the
+     * END corner begins at the last element (= shared with the next sector).
+     */
+    private sectorSlice(sector: string): { x: number; y: number }[] {
+        const S = CURVE_STEPS + 1;   // points-per-corner span
+        const N = PTS.length;        // 16
+        // Entry index of waypoint wpt's corner in this.fullPath
+        const ei = (wpt: number): number =>
+            wpt === 0 ? 1 + (N - 1) * S : 1 + (wpt - 1) * S;
+
+        switch (sector) {
+            // S1 straddles the array seam (PTS[0] is both the circuit's "first"
+            // and "last" waypoint), so we concatenate the tail and the head.
+            case 'S1':
+                return [
+                    ...this.fullPath.slice(ei(0)),          // E_0 + bezier_0 + F_0(wrap)
+                    ...this.fullPath.slice(0, ei(S2_IDX) + 1), // F_0 + interior + E_4
+                ];
+            case 'S2': return this.fullPath.slice(ei(S2_IDX), ei(S3_IDX) + 1);
+            case 'S3': return this.fullPath.slice(ei(S3_IDX), ei(S4_IDX) + 1);
+            case 'S4': return this.fullPath.slice(ei(S4_IDX), ei(0)      + 1);
+            default:   return [];
+        }
     }
 
     /** Draws a pre-computed point list using beginPath / moveTo / lineTo / strokePath. */
