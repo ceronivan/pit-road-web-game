@@ -2,6 +2,8 @@ import { Scene, GameObjects } from 'phaser';
 import type { Carro, Circuito, EstadoCarrera, Rival, DatosCarreraScene, DatosResultadosScene } from '../../types';
 import { generarRivales } from '../../systems/GeneradorRivales';
 import { getCircuito, simularVuelta, construirResultado } from '../../systems/SimuladorCarrera';
+import { SistemaFrenada } from '../../systems/SistemaFrenada';
+import type { EventoFrenada } from '../../systems/SistemaFrenada';
 import { CircuitoRenderer, SECTOR_COLOR, CX_L, CX_R, CY, R, BAND_PLAYER, BAND_RIVAL } from '../../ui/CircuitoRenderer';
 import { CircuitoBetaRenderer } from '../../ui/CircuitoBetaRenderer';
 import { estilos, COLOR } from '../../utils/estilos';
@@ -114,6 +116,13 @@ export class CarreraScene extends Scene {
 
     private sectorVisual = 'S1';
 
+    // ── Braking / wheel-lock events ───────────────────────────────────────────
+    private playerBrakingEvent:   EventoFrenada | null = null;
+    private playerBrakingElapsed  = 0;
+    private rivalBrakingEvent:    EventoFrenada | null = null;
+    private rivalBrakingElapsed   = 0;
+    private rivalDesgasteLlantas  = 0;
+
     // Startup: ms reales desde el inicio (solo vuelta 0)
     private startupTimer = 0;
 
@@ -167,6 +176,11 @@ export class CarreraScene extends Scene {
         this.metricBars       = [];
         this.metricTexts      = [];
         this.sectorVisual     = 'S1';
+        this.playerBrakingEvent   = null;
+        this.playerBrakingElapsed = 0;
+        this.rivalBrakingEvent    = null;
+        this.rivalBrakingElapsed  = 0;
+        this.rivalDesgasteLlantas = 0;
         this.duelPhase        = 'none';
         this.duelTimer        = 0;
         this.duelInitGapSign  = 0;
@@ -379,8 +393,40 @@ export class CarreraScene extends Scene {
         const playerWallF = this.factorBordePista(this.progresoVehiculo, this.playerEffBand);
         const rivalWallF  = this.factorBordePista(this.rivalProgress,    this.rivalEffBand);
 
+        // ── Braking events: advance timers, derive per-frame factors ─────────
+        const scaledDelta = delta * this.speedMult;
+
+        if (this.playerBrakingEvent) {
+            this.playerBrakingElapsed += scaledDelta;
+            if (this.playerBrakingElapsed >= this.playerBrakingEvent.duracionMs) {
+                this.playerBrakingEvent = null;
+            }
+        }
+        if (this.rivalBrakingEvent) {
+            this.rivalBrakingElapsed += scaledDelta;
+            if (this.rivalBrakingElapsed >= this.rivalBrakingEvent.duracionMs) {
+                this.rivalBrakingEvent = null;
+            }
+        }
+
+        let playerBrakeF    = 1.0;
+        let playerBandOffset = 0;
+        if (this.playerBrakingEvent) {
+            const ef = SistemaFrenada.efectoInstantaneo(this.playerBrakingEvent, this.playerBrakingElapsed);
+            playerBrakeF     = ef.factorVelocidad;
+            playerBandOffset = ef.bandOffset;
+        }
+
+        let rivalBrakeF    = 1.0;
+        let rivalBandOffset = 0;
+        if (this.rivalBrakingEvent) {
+            const ef = SistemaFrenada.efectoInstantaneo(this.rivalBrakingEvent, this.rivalBrakingElapsed);
+            rivalBrakeF     = ef.factorVelocidad;
+            rivalBandOffset = ef.bandOffset;
+        }
+
         // ── Progreso del jugador ──────────────────────────────────────────────
-        const playerFactor = this.factorVelocidad(this.progresoVehiculo) * startupFactor * playerProxFactor * playerWallF * playerAttackBoost;
+        const playerFactor = this.factorVelocidad(this.progresoVehiculo) * startupFactor * playerProxFactor * playerWallF * playerAttackBoost * playerBrakeF;
         this.progresoVehiculo += delta * this.speedMult * playerFactor / DELAY_BASE_MS;
 
         // Cruce de la línea de meta → nueva vuelta
@@ -405,13 +451,29 @@ export class CarreraScene extends Scene {
                 this.rivalSectorFactor = Math.random() < 0.55
                     ? 0.98 + Math.random() * 0.10   // buen trazo: 98–108 %
                     : 0.74 + Math.random() * 0.18;  // mal trazo:  74–92 %
+
+                if (!this.rivalBrakingEvent) {
+                    const segData = this.circuito.sectores.find(s => s.id === rSec);
+                    if (segData) {
+                        const ev = SistemaFrenada.evaluarEntrada(
+                            segData, this.rivalDesgasteLlantas, this.rivales[0].stats,
+                        );
+                        if (ev) {
+                            this.rivalBrakingEvent   = ev;
+                            this.rivalBrakingElapsed = 0;
+                            this.rivalDesgasteLlantas = Math.min(
+                                100, this.rivalDesgasteLlantas + ev.desgasteExtra,
+                            );
+                        }
+                    }
+                }
             } else {
                 this.rivalSectorFactor = 0.94 + Math.random() * 0.12; // 94–106 %
             }
         }
 
         const rivalFactor = this.factorVelocidad(this.rivalProgress)
-            * this.rivalSectorFactor * startupFactor * rivalProxFactor * rivalWallF * rivalAttackBoost;
+            * this.rivalSectorFactor * startupFactor * rivalProxFactor * rivalWallF * rivalAttackBoost * rivalBrakeF;
         this.rivalProgress = (this.rivalProgress + delta * this.speedMult * rivalFactor / DELAY_BASE_MS + 1) % 1;
 
         // Tope duro: el rival nunca puede separarse más de ±5 % del jugador
@@ -424,7 +486,8 @@ export class CarreraScene extends Scene {
         // ── Render ────────────────────────────────────────────────────────────
         this.circuitoRenderer.actualizarVehiculo(
             this.progresoVehiculo, this.rivalProgress,
-            this.playerEffBand, this.rivalEffBand
+            this.playerEffBand + playerBandOffset,
+            this.rivalEffBand  + rivalBandOffset,
         );
 
         // Sector activo según posición real del jugador
@@ -437,12 +500,29 @@ export class CarreraScene extends Scene {
             this.sectorVisual = sec;
             this.actualizarSectorCards(sec);
             this.circuitoRenderer.dibujarCircuito(sec);
+
+            if (!this.straightSectors.has(sec) && !this.playerBrakingEvent) {
+                const segData = this.circuito.sectores.find(s => s.id === sec);
+                if (segData) {
+                    const ev = SistemaFrenada.evaluarEntrada(
+                        segData, this.estado.desgasteLlantas, this.carro.stats,
+                    );
+                    if (ev) {
+                        this.playerBrakingEvent   = ev;
+                        this.playerBrakingElapsed = 0;
+                        this.estado.desgasteLlantas = Math.min(
+                            100, this.estado.desgasteLlantas + ev.desgasteExtra,
+                        );
+                        this.actualizarUI();
+                    }
+                }
+            }
         }
 
         // ── Métricas en tiempo real ───────────────────────────────────────────
-        // Velocidad actual en km/h (la función ya devuelve km/h directamente)
+        // Velocidad actual en km/h — includes braking event factor
         const spdKmh = Math.round(
-            this.velocidadInstantanea(this.progresoVehiculo) * startupFactor * playerProxFactor
+            this.velocidadInstantanea(this.progresoVehiculo) * startupFactor * playerProxFactor * playerBrakeF
         );
         this.metricTexts[4].setText(`${spdKmh} km/h`).setColor(
             spdKmh < 85 ? '#e0a030' : spdKmh > 110 ? '#4cdf80' : '#7ab8e8'
@@ -835,6 +915,10 @@ export class CarreraScene extends Scene {
             desgasteLlantas: res.desgasteLlantas,
             // calorMotor: fijo en 20 (motor desactivado)
         };
+
+        this.rivalDesgasteLlantas = Math.min(
+            100, this.rivalDesgasteLlantas + (3 + Math.random() * 2),
+        );
 
         this.actualizarUI();
 
