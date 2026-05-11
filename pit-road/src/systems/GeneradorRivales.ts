@@ -1,4 +1,4 @@
-import type { Rival, ArquetipoRival, StatsCarro, Pieza } from '../types';
+import type { Rival, ArquetipoRival, LineaCarrera, StatsCarro, Pieza } from '../types';
 import { aplicarTradeoffs } from './SimuladorCarrera';
 import piezasData from '../data/piezas.json';
 
@@ -20,6 +20,23 @@ const RANGOS: Record<ArquetipoRival, { acceleration: [number, number]; topSpeed:
 };
 
 const ARQUETIPOS: ArquetipoRival[] = ['velocista', 'resistente', 'climatero', 'tecnico', 'experimental'];
+
+// Driving style from the diagram: late apex = deep braking + fast exit,
+// early apex = easy turn-in + wide (slow) exit, optima = balanced.
+const LINEA_POR_ARQUETIPO: Record<ArquetipoRival, LineaCarrera | 'random'> = {
+    velocista:    'late_apex',   // brakes late, maximises exit speed
+    tecnico:      'late_apex',   // precision braking, optimal corner exit
+    resistente:   'early_apex',  // safe conservative line, protects tires
+    climatero:    'early_apex',  // cautious entry especially in wet conditions
+    experimental: 'random',      // unpredictable — could do anything
+};
+
+const LINEAS: LineaCarrera[] = ['late_apex', 'optima', 'early_apex'];
+
+function lineaParaArquetipo(arquetipo: ArquetipoRival): LineaCarrera {
+    const pref = LINEA_POR_ARQUETIPO[arquetipo];
+    return pref === 'random' ? LINEAS[Math.floor(Math.random() * LINEAS.length)] : pref;
+}
 
 function enRango([min, max]: [number, number], nivel: number): number {
     const escala = 1 + (nivel - 1) * 0.08; // +8% por nivel
@@ -59,6 +76,7 @@ export function generarRivales(cantidad: number, nivel: number = 1): Rival[] {
             arquetipo,
             nivel,
             stats,
+            lineaCarrera:   lineaParaArquetipo(arquetipo),
             piezasVisibles: todasPiezas.slice(0, 3),
             piezasOcultas:  todasPiezas.slice(3),
         };

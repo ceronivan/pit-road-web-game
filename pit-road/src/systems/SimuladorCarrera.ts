@@ -2,7 +2,7 @@ import type {
     StatsCarro, EstadoCarrera, EstadoClimatico,
     ResultadoVuelta, ResultadoCarrera, Rival,
     CategoriaPieza, Pieza, CircuitoComputado, Segmento,
-    ModificadoresSegmento
+    ModificadoresSegmento, LineaCarrera
 } from '../types';
 
 // ─── Pesos de contribución: categoría → variable maestra ─────────────────────
@@ -162,6 +162,13 @@ function sigmaEjecucion(
 // Modela la línea de carrera en fases según el diagrama (frenada→apex→salida).
 // Devuelve el rendimiento real ejecutado (con errores humanos aplicados).
 // calidadVuelta: factor global de la vuelta (buena/mala vuelta del piloto).
+//
+// LineaCarrera modifica el balance riesgo/recompensa de cada fase:
+//   late_apex  — frenada tardía (mayor σ), carry-over reducido, mejor salida.
+//                Piloto agresivo: alto techo, pero más varianza en el punto de frenada.
+//   early_apex — entrada fácil (menor σ en frenada), pero el carro sale ancho.
+//                Salida comprometida: menor varianza, menor velocidad máxima de salida.
+//   optima     — línea balanceada, mínimo tiempo teórico, coeficientes base.
 function ejecutarSegmento(
     stats: StatsCarro,
     seg: Segmento,
@@ -169,6 +176,7 @@ function ejecutarSegmento(
     circuito: CircuitoComputado,
     desgaste: number,
     calidadVuelta: number,
+    linea: LineaCarrera = 'optima',
 ): number {
     const base  = calcularRendimientoEnSegmento(stats, seg, clima, circuito);
     const sigma = sigmaEjecucion(stats, seg, clima, circuito, desgaste);
@@ -176,27 +184,38 @@ function ejecutarSegmento(
     let errorEjecucion: number;
 
     if (seg.tipo === 'curva') {
+        // ── Factores según línea de carrera ───────────────────────────────────
+        // late_apex : frenada más difícil (+35% σ), pero el carry-over se reduce
+        //             porque el ángulo de aproximación al apex es más limpio.
+        //             Salida más ancha en la pista → sesgo de salida positivo.
+        // early_apex: frenada más fácil (−25% σ), pero el carro queda ancho
+        //             en la salida → penalización de aceleración de salida.
+        // optima    : coeficientes base (sin ajuste).
+        const sigmaFrenoFactor   = linea === 'late_apex'  ? 1.35
+                                 : linea === 'early_apex' ? 0.75 : 1.00;
+        const carryoverFactor    = linea === 'late_apex'  ? 0.65
+                                 : linea === 'early_apex' ? 1.60 : 1.00;
+        const sesgaSalidaExtra   = linea === 'late_apex'  ? -sigma * 0.12   // salida rápida
+                                 : linea === 'early_apex' ?  sigma * 0.22   // salida ancha
+                                 : 0;
+
         // ── Fase 1: Frenada / Braking zone ────────────────────────────────────
-        // acceleration define qué tan tarde se puede frenar y con qué precisión.
-        // Un error en frenada arruina las fases siguientes (carry-over del 35%).
-        const eFreno = gauss(sigma * 0.40);
+        const eFreno = gauss(sigma * 0.40 * sigmaFrenoFactor);
 
         // ── Fase 2: Apex / Neutral balance / Trail braking ────────────────────
-        // handling define si el piloto sigue la línea ideal al vértice.
-        // El error de frenada se arrastra parcialmente (no puedes corregir del todo).
-        const carryover = eFreno * 0.35;
-        const eApex = gauss(sigma * 0.35) + carryover;
+        const carryover = eFreno * 0.35 * carryoverFactor;
+        const eApex     = gauss(sigma * 0.35) + carryover;
 
         // ── Fase 3: Transición + Aceleración de salida ────────────────────────
-        // acceleration + handling juntos determinan cuándo se puede pisar el gas.
-        const eSalida = gauss(sigma * 0.28);
+        const eSalida = gauss(sigma * 0.28) + sesgaSalidaExtra;
 
-        // Peso de cada fase: frenada y apex son más críticas que la salida
         errorEjecucion = eFreno * 0.35 + eApex * 0.40 + eSalida * 0.25;
     } else {
         // ── Recta: velocidad de entrada + punta + frenada al final ────────────
-        // La velocidad de entrada depende de qué tan bien se ejecutó la curva anterior.
-        const eEntrada = gauss(sigma * 0.50);
+        // La velocidad de entrada refleja qué tan bien salió de la curva anterior.
+        // Un early_apex en la curva previa deja el carro ancho → entrada más lenta.
+        const entradaPenalty = linea === 'early_apex' ? sigma * 0.10 : 0;
+        const eEntrada = gauss(sigma * 0.50) + entradaPenalty;
         const eVelMax  = gauss(sigma * 0.20);
         errorEjecucion = eEntrada * 0.60 + eVelMax * 0.40;
     }
@@ -215,13 +234,14 @@ function simularEjecucionVuelta(
     clima: EstadoClimatico,
     circuito: CircuitoComputado,
     desgaste: number,
+    linea: LineaCarrera = 'optima',
 ): number {
     // Una vuelta tiene un factor de calidad global (buena o mala vuelta del piloto).
     // Sigma=2.5 → la mayoría de vueltas ±2.5 puntos respecto al promedio del piloto.
     const calidadVuelta = gauss(2.5);
 
     const ejecuciones = circuito.sectores.map(seg =>
-        ejecutarSegmento(stats, seg, clima, circuito, desgaste, calidadVuelta)
+        ejecutarSegmento(stats, seg, clima, circuito, desgaste, calidadVuelta, linea)
     );
     return ejecuciones.reduce((a, b) => a + b, 0) / ejecuciones.length;
 }
@@ -243,9 +263,10 @@ export function simularVuelta(
 
     // Rivales: mismo modelo de ejecución, con desgaste de llantas variado
     // (cada rival está en una etapa distinta de su estrategia de pits)
+    // Su lineaCarrera determina el balance riesgo/recompensa en cada curva.
     const rendimientosRivales = rivales.map(r => {
         const desgasteRival = 8 + Math.random() * 35;
-        return simularEjecucionVuelta(r.stats, estado.clima, circuito, desgasteRival);
+        return simularEjecucionVuelta(r.stats, estado.clima, circuito, desgasteRival, r.lineaCarrera);
     });
 
     const posicion = rendimientosRivales.filter(r => r > rendimiento).length + 1;

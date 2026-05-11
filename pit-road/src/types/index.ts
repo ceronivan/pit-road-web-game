@@ -9,6 +9,12 @@ export type EstadoClimatico =
 export type ArquetipoRival =
     'velocista' | 'resistente' | 'climatero' | 'tecnico' | 'experimental';
 
+// Racing line strategy chosen by a driver for a given corner sequence.
+// late_apex  — brakes deep, tight apex, wide corner exit with exit speed.
+// early_apex — turns in early, easy apex, wide exit (vulnerable to overtake).
+// optima     — textbook balanced line, minimum time cost.
+export type LineaCarrera = 'late_apex' | 'optima' | 'early_apex';
+
 export interface StatsPieza {
     acceleration?: number;
     topSpeed?: number;
@@ -42,6 +48,7 @@ export interface Rival {
     arquetipo: ArquetipoRival;
     nivel: number;
     stats: StatsCarro;
+    lineaCarrera: LineaCarrera;
     piezasVisibles: Pieza[];
     piezasOcultas: Pieza[];
 }
