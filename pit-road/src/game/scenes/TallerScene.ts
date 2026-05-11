@@ -1,45 +1,64 @@
 import { Scene, GameObjects } from 'phaser';
-import type { Pieza, CategoriaPieza, StatsCarro, DatosCarreraScene } from '../../types';
+import type { Pieza, CategoriaPieza, DatosCarreraScene } from '../../types';
 import piezasData from '../../data/piezas.json';
 import { calcularStatsCarro, calcularRendimiento } from '../../systems/SimuladorCarrera';
 import { estilos, COLOR } from '../../utils/estilos';
 
 const FONT = "'Open Sans', sans-serif";
 
-const CATEGORIAS: CategoriaPieza[] = ['motor', 'suspension', 'llantas', 'transmision', 'aerodinamica', 'electronica'];
+const CATEGORIAS: CategoriaPieza[] = [
+    'motor', 'suspension', 'llantas', 'transmision', 'aerodinamica', 'electronica',
+];
+
 const CAT_LABEL: Record<CategoriaPieza, string> = {
+    motor:        'Motor',
+    suspension:   'Suspensión',
+    llantas:      'Llantas',
+    transmision:  'Transmisión',
+    aerodinamica: 'Aerodinámica',
+    electronica:  'Electrónica',
+};
+
+const CAT_CODE: Record<CategoriaPieza, string> = {
     motor: 'MOT', suspension: 'SUS', llantas: 'LLA',
     transmision: 'TRA', aerodinamica: 'AER', electronica: 'ELE',
 };
-const CAT_ICON: Record<CategoriaPieza, string> = {
-    motor: '⚙', suspension: '〰', llantas: '◎', transmision: '⇄', aerodinamica: '▲', electronica: '⚡',
+
+const COLOR_RAREZA: Record<string, number> = {
+    comun: COLOR.COMUN,
+    rara:  COLOR.RARA,
+    epica: COLOR.EPICA,
 };
-const COLOR_RAREZA: Record<string, number> = { comun: COLOR.COMUN, rara: COLOR.RARA, epica: COLOR.EPICA };
+
 const PIEZAS_INICIALES = ['motor_01', 'suspension_01', 'llantas_01'];
 
-// ── Layout ────────────────────────────────────────────────────────────────────
-const HEADER_H  = 13;
-const SLOT_X    = 4;
-const SLOT_Y0   = HEADER_H + 3;
-const SLOT_W    = 152;
-const SLOT_H    = 22;   // was 24 — reduced to prevent overlap with button
-const SLOT_GAP  = 1;    // was 2
-const PANEL_X   = 162;
-const PANEL_W   = 154;
-const BARRA_W   = 140;
-const BARRA_H   = 6;
-const BTN_Y     = 156;  // 6 slots × 22 + 5 gaps × 1 = 137 + 16 padding = 153 → button at 156
+// ── Layout (960×540) ──────────────────────────────────────────────────────────
+const HEADER_H  = 44;
+const SLOT_X    = 16;
+const SLOT_Y0   = 58;    // HEADER_H + 14
+const SLOT_W    = 436;
+const SLOT_H    = 64;
+const SLOT_GAP  = 6;
+const DIVIDER_X = 472;
+const PANEL_X   = 496;
+const BARRA_W   = 400;
+const BARRA_H   = 12;
+const BTN_Y     = 482;
+const BTN_H     = 44;
 
 export class TallerScene extends Scene {
     private piezasEquipadas: Partial<Record<CategoriaPieza, Pieza>> = {};
-    private todasPiezas: Pieza[] = [];
-    private panelSelector?: GameObjects.Container;
+    private todasPiezas:     Pieza[] = [];
+    private panelSelector?:  GameObjects.Container;
 
-    // Slot graphics & texts
     private slotGraphics: GameObjects.Graphics[] = [];
     private slotNombres:  GameObjects.Text[]     = [];
+    private slotRareza:   GameObjects.Text[]     = [];
 
-    // Stats bars
+    // ── Circuit selector ──────────────────────────────────────────────────────
+    private selectedCircuitoId = 'circuito_alfa';
+    private circuitBtnBgs: GameObjects.Graphics[] = [];
+
     private gfxBars!:    GameObjects.Graphics;
     private barraAccel!: GameObjects.Rectangle;
     private barraSpeed!: GameObjects.Rectangle;
@@ -63,59 +82,65 @@ export class TallerScene extends Scene {
         this.dibujarHeader();
         this.dibujarSlots();
         this.dibujarPanelStats();
+        this.dibujarSelectorCircuito();
         this.dibujarBotonCarrera();
         this.actualizarStatsUI();
     }
 
-    // ── Background ────────────────────────────────────────────────────────────
+    // ── Fondo ─────────────────────────────────────────────────────────────────
     private dibujarFondo() {
         const g = this.add.graphics();
         g.fillStyle(COLOR.BG, 1);
-        g.fillRect(0, 0, 320, 180);
+        g.fillRect(0, 0, 960, 540);
 
-        // Divider between slots and stats panels
-        g.lineStyle(1, COLOR.CARD_BORDER, 0.4);
-        g.lineBetween(PANEL_X - 4, HEADER_H, PANEL_X - 4, 160);
+        // Divisor vertical
+        g.fillStyle(COLOR.CARD_BORDER, 0.4);
+        g.fillRect(DIVIDER_X, HEADER_H + 8, 1, BTN_Y - HEADER_H - 16);
 
-        // Bottom button area
+        // Franja inferior del botón
         g.fillStyle(COLOR.STRIP_BG, 1);
-        g.fillRect(0, BTN_Y - 2, 320, 180 - BTN_Y + 2);
-        g.lineStyle(1, COLOR.CARD_BORDER, 0.4);
-        g.lineBetween(0, BTN_Y - 2, 320, BTN_Y - 2);
+        g.fillRect(0, BTN_Y - 1, 960, 540 - BTN_Y + 1);
+        g.lineStyle(1, COLOR.CARD_BORDER, 0.5);
+        g.lineBetween(0, BTN_Y - 1, 960, BTN_Y - 1);
     }
 
     // ── Header ────────────────────────────────────────────────────────────────
     private dibujarHeader() {
         const g = this.add.graphics();
         g.fillStyle(COLOR.HEADER_BG, 1);
-        g.fillRect(0, 0, 320, HEADER_H);
-        g.lineStyle(1, COLOR.CARD_BORDER, 0.5);
-        g.lineBetween(0, HEADER_H, 320, HEADER_H);
+        g.fillRect(0, 0, 960, HEADER_H);
+        g.lineStyle(1, COLOR.CARD_BORDER, 0.6);
+        g.lineBetween(0, HEADER_H, 960, HEADER_H);
 
-        this.add.text(4, 2, 'TALLER', { fontSize: '9px', fontFamily: FONT, color: '#ffcc00', fontStyle: 'bold' });
-        this.add.text(PANEL_X, 2, 'ESTADÍSTICAS', { fontSize: '9px', fontFamily: FONT, color: '#5888a8' });
+        this.add.text(16, 13, 'TALLER', estilos.titulo);
+        this.add.text(PANEL_X, 13, 'ESTADÍSTICAS DEL CARRO', estilos.subtitulo);
     }
 
-    // ── Equipment slots ───────────────────────────────────────────────────────
+    // ── Slots de equipamiento ─────────────────────────────────────────────────
     private dibujarSlots() {
         CATEGORIAS.forEach((cat, i) => {
-            const y  = SLOT_Y0 + i * (SLOT_H + SLOT_GAP);
-            const g  = this.add.graphics();
+            const y = SLOT_Y0 + i * (SLOT_H + SLOT_GAP);
+            const g = this.add.graphics();
             this.slotGraphics.push(g);
 
-            // Category label (fixed)
-            this.add.text(SLOT_X + 3, y + 6, `${CAT_ICON[cat]} ${CAT_LABEL[cat]}`, {
-                fontSize: '9px', fontFamily: FONT, color: '#4a7898',
+            // Código de categoría (badge fijo)
+            this.add.text(SLOT_X + 10, y + 22, CAT_CODE[cat], {
+                fontSize: '11px', fontFamily: FONT, color: '#4a7898', fontStyle: 'bold',
             });
 
-            // Piece name (dynamic)
-            const nombre = this.add.text(SLOT_X + 32, y + 6, '— vacío —', {
-                fontSize: '9px', fontFamily: FONT, color: '#334455',
-            });
+            // Nombre de categoría
+            this.add.text(SLOT_X + 52, y + 14, CAT_LABEL[cat], estilos.muted);
+
+            // Nombre de pieza (dinámico)
+            const nombre = this.add.text(SLOT_X + 52, y + 34, '— vacío —', estilos.dim);
             this.slotNombres.push(nombre);
 
-            // Interactive zone
-            const zone = this.add.zone(SLOT_X, y, SLOT_W, SLOT_H).setOrigin(0, 0).setInteractive({ useHandCursor: true });
+            // Rareza (dinámico)
+            const rar = this.add.text(SLOT_X + SLOT_W - 10, y + 22, '', estilos.dim).setOrigin(1, 0);
+            this.slotRareza.push(rar);
+
+            const zone = this.add.zone(SLOT_X, y, SLOT_W, SLOT_H)
+                .setOrigin(0, 0).setInteractive({ useHandCursor: true });
             zone.on('pointerdown', () => this.abrirSelector(cat));
             zone.on('pointerover', () => this.resaltarSlot(i, true));
             zone.on('pointerout',  () => this.resaltarSlot(i, false));
@@ -125,76 +150,77 @@ export class TallerScene extends Scene {
     }
 
     private resaltarSlot(idx: number, hover: boolean) {
-        const cat   = CATEGORIAS[idx];
-        const pieza = this.piezasEquipadas[cat];
-        const y     = SLOT_Y0 + idx * (SLOT_H + SLOT_GAP);
-        const g     = this.slotGraphics[idx];
+        const cat      = CATEGORIAS[idx];
+        const pieza    = this.piezasEquipadas[cat];
+        const y        = SLOT_Y0 + idx * (SLOT_H + SLOT_GAP);
+        const g        = this.slotGraphics[idx];
         const rarColor = pieza ? COLOR_RAREZA[pieza.rareza] : COLOR.CARD_BORDER;
 
         g.clear();
         g.fillStyle(hover ? 0x0f1e30 : COLOR.CARD_BG, 1);
-        g.fillRoundedRect(SLOT_X, y, SLOT_W, SLOT_H, 3);
-        g.lineStyle(1, rarColor, pieza ? (hover ? 0.9 : 0.5) : (hover ? 0.4 : 0.15));
-        g.strokeRoundedRect(SLOT_X + 0.5, y + 0.5, SLOT_W - 1, SLOT_H - 1, 3);
+        g.fillRoundedRect(SLOT_X, y, SLOT_W, SLOT_H, 4);
+        g.lineStyle(1, rarColor, pieza ? (hover ? 0.9 : 0.5) : (hover ? 0.3 : 0.12));
+        g.strokeRoundedRect(SLOT_X + 0.5, y + 0.5, SLOT_W - 1, SLOT_H - 1, 4);
     }
 
     private actualizarSlots() {
         CATEGORIAS.forEach((cat, i) => {
-            const pieza = this.piezasEquipadas[cat];
-            this.slotNombres[i].setText(pieza ? pieza.nombre : '— vacío —')
-                .setColor(pieza ? '#d0e8ff' : '#334455');
+            const pieza    = this.piezasEquipadas[cat];
+            const rarLabel = pieza?.rareza === 'epica'  ? 'ÉPICA'
+                           : pieza?.rareza === 'rara'   ? 'RARA'
+                           : pieza                      ? 'COMÚN'
+                           : '';
+            const rarColor = pieza ? `#${COLOR_RAREZA[pieza.rareza].toString(16).padStart(6, '0')}` : '#334455';
+
+            this.slotNombres[i]
+                .setText(pieza ? pieza.nombre : '— vacío —')
+                .setColor(pieza ? '#d0e8ff' : '#2a3a4a');
+            this.slotRareza[i].setText(rarLabel).setColor(rarColor);
             this.resaltarSlot(i, false);
         });
     }
 
-    // ── Stats panel ───────────────────────────────────────────────────────────
+    // ── Panel de estadísticas ─────────────────────────────────────────────────
     private dibujarPanelStats() {
         const x  = PANEL_X;
-        const y0 = HEADER_H + 4;
-        const dy = 38;
+        const y0 = HEADER_H + 24;
+        const dy = 108;
 
         this.gfxBars = this.add.graphics();
 
-        const bars: [string, number, number][] = [
-            ['ACCEL', COLOR.ACCEL, y0],
-            ['SPEED', COLOR.SPEED, y0 + dy],
-            ['HANDL', COLOR.HANDL, y0 + dy * 2],
+        const defs: [string, number][] = [
+            ['ACELERACIÓN', COLOR.ACCEL],
+            ['VELOCIDAD PUNTA', COLOR.SPEED],
+            ['MANEJO',    COLOR.HANDL],
         ];
 
-        bars.forEach(([label, color, y]) => {
+        defs.forEach(([label, _color], idx) => {
+            const y = y0 + idx * dy;
             this.add.text(x, y, label, estilos.cardLabel);
-            // Background bar
             this.gfxBars.fillStyle(COLOR.CARD_BG_ALT, 1);
-            this.gfxBars.fillRoundedRect(x, y + 13, BARRA_W, BARRA_H, 2);
+            this.gfxBars.fillRoundedRect(x, y + 18, BARRA_W, BARRA_H, 3);
         });
 
-        // ACCEL bar
-        this.barraAccel = this.add.rectangle(x, y0 + 13, 0, BARRA_H, COLOR.ACCEL).setOrigin(0, 0);
-        this.lblAccel   = this.add.text(x + BARRA_W + 3, y0 + 13, '0', {
-            fontSize: '9px', fontFamily: FONT, color: '#e05828',
-        });
+        const mx = x + BARRA_W + 12;
 
-        // SPEED bar
-        this.barraSpeed = this.add.rectangle(x, y0 + dy + 13, 0, BARRA_H, COLOR.SPEED).setOrigin(0, 0);
-        this.lblSpeed   = this.add.text(x + BARRA_W + 3, y0 + dy + 13, '0', {
-            fontSize: '9px', fontFamily: FONT, color: '#8050e0',
-        });
+        this.barraAccel = this.add.rectangle(x, y0      + 18, 0, BARRA_H, COLOR.ACCEL).setOrigin(0, 0);
+        this.lblAccel   = this.add.text(mx, y0      + 17, '0', { fontSize: '13px', fontFamily: FONT, color: '#e05828', fontStyle: 'bold' });
 
-        // HANDL bar
-        this.barraHandl = this.add.rectangle(x, y0 + dy * 2 + 13, 0, BARRA_H, COLOR.HANDL).setOrigin(0, 0);
-        this.lblHandl   = this.add.text(x + BARRA_W + 3, y0 + dy * 2 + 13, '0', {
-            fontSize: '9px', fontFamily: FONT, color: '#28b878',
-        });
+        this.barraSpeed = this.add.rectangle(x, y0 + dy   + 18, 0, BARRA_H, COLOR.SPEED).setOrigin(0, 0);
+        this.lblSpeed   = this.add.text(mx, y0 + dy   + 17, '0', { fontSize: '13px', fontFamily: FONT, color: '#8050e0', fontStyle: 'bold' });
 
-        // Rendimiento total card
-        const ry = y0 + dy * 3 + 2;
-        const sepG = this.add.graphics();
-        sepG.lineStyle(1, COLOR.CARD_BORDER, 0.5);
-        sepG.lineBetween(x, ry - 4, x + PANEL_W, ry - 4);
+        this.barraHandl = this.add.rectangle(x, y0 + dy*2 + 18, 0, BARRA_H, COLOR.HANDL).setOrigin(0, 0);
+        this.lblHandl   = this.add.text(mx, y0 + dy*2 + 17, '0', { fontSize: '13px', fontFamily: FONT, color: '#28b878', fontStyle: 'bold' });
 
-        this.add.text(x, ry, 'RENDIMIENTO', estilos.cardLabel);
-        this.lblRend = this.add.text(x + 70, ry - 2, '—', {
-            fontSize: '11px', fontFamily: FONT, color: '#ffcc00', fontStyle: 'bold',
+        // Rendimiento global
+        const ry = y0 + dy * 3 + 4;
+        const sg = this.add.graphics();
+        sg.lineStyle(1, COLOR.CARD_BORDER, 0.5);
+        sg.lineBetween(x, ry, x + BARRA_W + 40, ry);
+
+        this.add.text(x, ry + 12, 'RENDIMIENTO GLOBAL', estilos.cardLabel);
+        this.lblRend = this.add.text(x + 200, ry + 7, '—', {
+            fontSize: '18px', fontFamily: FONT, color: '#ffcc00', fontStyle: 'bold',
         });
     }
 
@@ -214,102 +240,161 @@ export class TallerScene extends Scene {
         this.lblHandl.setText(`${stats.handling}`);
 
         const rendColor = rend >= 70 ? '#4cdf80' : rend >= 50 ? '#ffcc00' : '#ff4455';
-        this.lblRend.setText(`${rend}`).setColor(rendColor);
+        this.lblRend.setText(`${rend} / 100`).setColor(rendColor);
     }
 
-    // ── Piece selector ────────────────────────────────────────────────────────
+    // ── Selector de piezas ────────────────────────────────────────────────────
     private abrirSelector(categoria: CategoriaPieza) {
         this.panelSelector?.destroy();
-        const piezas = this.todasPiezas.filter(p => p.categoria === categoria);
-        const ITEM_H = 22, POPUP_W = 152, POPUP_H = 16 + piezas.length * (ITEM_H + 2) + 4;
 
-        // Position to the right of the slot column
-        const c = this.add.container(SLOT_X + SLOT_W + 4, 80);
+        const piezas   = this.todasPiezas.filter(p => p.categoria === categoria);
+        const ITEM_H   = 52;
+        const PAD      = 16;
+        const POPUP_W  = SLOT_W;     // mismo ancho que slots
+        const POPUP_H  = PAD * 2 + 32 + piezas.length * (ITEM_H + 4);
 
-        const g = this.add.graphics();
-        g.fillStyle(0x060e1a, 0.98);
-        g.fillRoundedRect(0, 0, POPUP_W, POPUP_H, 4);
-        g.lineStyle(1, COLOR.SECTOR_S2, 0.7);
-        g.strokeRoundedRect(0.5, 0.5, POPUP_W - 1, POPUP_H - 1, 4);
-        c.add(g);
+        // Popup sobre la lista de slots, alineado arriba
+        const popupY = Math.max(SLOT_Y0, BTN_Y - POPUP_H - 8);
+        const c = this.add.container(SLOT_X, popupY);
 
-        c.add(this.add.text(6, 4, `ELIGE  ${CAT_LABEL[categoria]}`, estilos.subtitulo));
-        const cerrar = this.add.text(POPUP_W - 14, 3, '✕', {
-            fontSize: '9px', fontFamily: FONT, color: '#ff4455',
+        const bg = this.add.graphics();
+        bg.fillStyle(0x04090f, 0.98);
+        bg.fillRoundedRect(0, 0, POPUP_W, POPUP_H, 6);
+        bg.lineStyle(2, COLOR.SECTOR_S2, 0.6);
+        bg.strokeRoundedRect(1, 1, POPUP_W - 2, POPUP_H - 2, 6);
+        c.add(bg);
+
+        c.add(this.add.text(PAD, PAD, CAT_LABEL[categoria].toUpperCase(), estilos.subtitulo));
+
+        const cerrar = this.add.text(POPUP_W - PAD - 12, PAD, '✕', {
+            fontSize: '14px', fontFamily: FONT, color: '#5888a8',
         }).setInteractive({ useHandCursor: true }).on('pointerdown', () => c.destroy());
         c.add(cerrar);
 
         piezas.forEach((p, i) => {
-            const y      = 16 + i * (ITEM_H + 2);
+            const y      = PAD + 32 + i * (ITEM_H + 4);
             const rarCol = COLOR_RAREZA[p.rareza];
             const rarHex = `#${rarCol.toString(16).padStart(6, '0')}`;
-            const rarStr = p.rareza === 'comun' ? 'C' : p.rareza === 'rara' ? 'R' : 'E';
+            const rarStr = p.rareza === 'epica' ? 'ÉPICA' : p.rareza === 'rara' ? 'RARA' : 'COMÚN';
 
             const itemBg = this.add.graphics();
-            itemBg.fillStyle(COLOR.CARD_BG, 1);
-            itemBg.fillRoundedRect(2, y, POPUP_W - 4, ITEM_H, 2);
-            itemBg.lineStyle(1, rarCol, 0.3);
-            itemBg.strokeRoundedRect(2.5, y + 0.5, POPUP_W - 5, ITEM_H - 1, 2);
+            const drawItem = (hover: boolean) => {
+                itemBg.clear();
+                itemBg.fillStyle(hover ? 0x0f2238 : COLOR.CARD_BG, 1);
+                itemBg.fillRoundedRect(PAD, y, POPUP_W - PAD * 2, ITEM_H, 3);
+                itemBg.lineStyle(1, rarCol, hover ? 0.7 : 0.3);
+                itemBg.strokeRoundedRect(PAD + 0.5, y + 0.5, POPUP_W - PAD * 2 - 1, ITEM_H - 1, 3);
+            };
+            drawItem(false);
             c.add(itemBg);
 
-            const zone = this.add.zone(2, y, POPUP_W - 4, ITEM_H).setOrigin(0, 0).setInteractive({ useHandCursor: true });
+            c.add(this.add.text(PAD + 12, y + 12, p.nombre, estilos.normal));
+            c.add(this.add.text(POPUP_W - PAD - 10, y + 12, rarStr, {
+                fontSize: '11px', fontFamily: FONT, color: rarHex, fontStyle: 'bold',
+            }).setOrigin(1, 0));
+
+            const zone = this.add.zone(PAD, y, POPUP_W - PAD * 2, ITEM_H)
+                .setOrigin(0, 0).setInteractive({ useHandCursor: true });
+
             zone.on('pointerdown', () => {
                 this.piezasEquipadas[categoria] = p;
                 this.actualizarSlots();
                 this.actualizarStatsUI();
                 c.destroy();
             });
-            zone.on('pointerover', () => {
-                itemBg.clear();
-                itemBg.fillStyle(0x0f2238, 1);
-                itemBg.fillRoundedRect(2, y, POPUP_W - 4, ITEM_H, 2);
-                itemBg.lineStyle(1, rarCol, 0.7);
-                itemBg.strokeRoundedRect(2.5, y + 0.5, POPUP_W - 5, ITEM_H - 1, 2);
-            });
-            zone.on('pointerout', () => {
-                itemBg.clear();
-                itemBg.fillStyle(COLOR.CARD_BG, 1);
-                itemBg.fillRoundedRect(2, y, POPUP_W - 4, ITEM_H, 2);
-                itemBg.lineStyle(1, rarCol, 0.3);
-                itemBg.strokeRoundedRect(2.5, y + 0.5, POPUP_W - 5, ITEM_H - 1, 2);
-            });
-
-            c.add(this.add.text(6, y + 5, p.nombre, { fontSize: '9px', fontFamily: FONT, color: '#d0e8ff' }));
-            c.add(this.add.text(POPUP_W - 14, y + 5, rarStr, { fontSize: '9px', fontFamily: FONT, color: rarHex, fontStyle: 'bold' }));
+            zone.on('pointerover', () => drawItem(true));
+            zone.on('pointerout',  () => drawItem(false));
             c.add(zone);
         });
 
         this.panelSelector = c;
     }
 
-    // ── Race button ───────────────────────────────────────────────────────────
-    private dibujarBotonCarrera() {
-        const BH = 14;
-        const g  = this.add.graphics();
-        g.fillStyle(COLOR.BTN_GREEN, 1);
-        g.fillRoundedRect(4, BTN_Y, 312, BH, 3);
+    // ── Selector de circuito ──────────────────────────────────────────────────
+    private dibujarSelectorCircuito() {
+        const x    = PANEL_X;
+        const y    = 432;
+        const BW   = 195;
+        const BH   = 32;
+        const GAP  = 10;
+        const IDS  = ['circuito_alfa', 'circuito_beta'] as const;
+        const LBLS = ['CIRCUITO ALFA', 'CIRCUITO BETA'];
 
-        const zone = this.add.zone(4, BTN_Y, 312, BH).setOrigin(0, 0).setInteractive({ useHandCursor: true });
+        this.add.text(x, y - 18, 'CIRCUITO', estilos.cardLabel);
+
+        const drawBtn = (i: number, hover: boolean) => {
+            const bx     = x + i * (BW + GAP);
+            const active = IDS[i] === this.selectedCircuitoId;
+            const g      = this.circuitBtnBgs[i];
+            g.clear();
+            if (active) {
+                g.fillStyle(0x1a3a60, 1);
+                g.fillRoundedRect(bx, y, BW, BH, 4);
+                g.lineStyle(1, 0x5070e0, 1);
+                g.strokeRoundedRect(bx + 0.5, y + 0.5, BW - 1, BH - 1, 4);
+            } else if (hover) {
+                g.fillStyle(0x0f1e30, 1);
+                g.fillRoundedRect(bx, y, BW, BH, 4);
+                g.lineStyle(1, COLOR.CARD_BORDER, 0.8);
+                g.strokeRoundedRect(bx + 0.5, y + 0.5, BW - 1, BH - 1, 4);
+            } else {
+                g.fillStyle(COLOR.CARD_BG, 1);
+                g.fillRoundedRect(bx, y, BW, BH, 4);
+                g.lineStyle(1, COLOR.CARD_BORDER, 0.35);
+                g.strokeRoundedRect(bx + 0.5, y + 0.5, BW - 1, BH - 1, 4);
+            }
+        };
+
+        IDS.forEach((id, i) => {
+            const bx = x + i * (BW + GAP);
+            this.circuitBtnBgs.push(this.add.graphics());
+            drawBtn(i, false);
+
+            this.add.text(bx + BW / 2, y + BH / 2, LBLS[i], {
+                fontSize: '12px', fontFamily: FONT, color: '#d0e8ff', fontStyle: 'bold',
+            }).setOrigin(0.5, 0.5);
+
+            const zone = this.add.zone(bx, y, BW, BH)
+                .setOrigin(0, 0).setInteractive({ useHandCursor: true });
+
+            zone.on('pointerdown', () => {
+                this.selectedCircuitoId = id;
+                IDS.forEach((_, j) => drawBtn(j, false));
+            });
+            zone.on('pointerover', () => drawBtn(i, true));
+            zone.on('pointerout',  () => drawBtn(i, false));
+        });
+    }
+
+    // ── Botón carrera ─────────────────────────────────────────────────────────
+    private dibujarBotonCarrera() {
+        const BX = 16, BW = 928, BY = BTN_Y + 8;
+
+        const g = this.add.graphics();
+        g.fillStyle(COLOR.BTN_GREEN, 1);
+        g.fillRoundedRect(BX, BY, BW, BTN_H, 6);
+
+        const zone = this.add.zone(BX, BY, BW, BTN_H)
+            .setOrigin(0, 0).setInteractive({ useHandCursor: true });
         zone.on('pointerdown', () => this.irACarrera());
         zone.on('pointerover', () => {
-            g.clear();
-            g.fillStyle(COLOR.BTN_GREEN_H, 1);
-            g.fillRoundedRect(4, BTN_Y, 312, BH, 3);
+            g.clear(); g.fillStyle(COLOR.BTN_GREEN_H, 1); g.fillRoundedRect(BX, BY, BW, BTN_H, 6);
         });
         zone.on('pointerout', () => {
-            g.clear();
-            g.fillStyle(COLOR.BTN_GREEN, 1);
-            g.fillRoundedRect(4, BTN_Y, 312, BH, 3);
+            g.clear(); g.fillStyle(COLOR.BTN_GREEN, 1); g.fillRoundedRect(BX, BY, BW, BTN_H, 6);
         });
 
-        this.add.text(160, BTN_Y + 3, '▶  IR A CARRERA', {
-            fontSize: '9px', fontFamily: FONT, color: '#4cdf80', fontStyle: 'bold',
-        }).setOrigin(0.5, 0);
+        this.add.text(480, BY + BTN_H / 2, 'IR A CARRERA', {
+            fontSize: '15px', fontFamily: FONT, color: '#4cdf80', fontStyle: 'bold',
+        }).setOrigin(0.5, 0.5);
     }
 
     private irACarrera() {
         const stats = calcularStatsCarro(this.piezasEquipadas);
-        const datos: DatosCarreraScene = { carro: { piezas: this.piezasEquipadas, stats } };
+        const datos: DatosCarreraScene = {
+            carro:      { piezas: this.piezasEquipadas, stats },
+            circuitoId: this.selectedCircuitoId,
+        };
         this.scene.start('CarreraScene', datos);
     }
 }

@@ -1,31 +1,32 @@
-// zoom=2 → every 1 game-px = 2 screen-px
-// Target screen sizes: labels 14px, body 16–18px, titles 20–22px
+// Canvas: 960×540, Scale.FIT → fills screen
+// At 1366×768 (common laptop): ~1.42× → 13px game = 18px screen
+// At 1920×1080 (Full HD):      ~2.00× → 13px game = 26px screen
 const FONT = "'Open Sans', sans-serif";
 
 export const estilos = {
-    titulo:     { fontSize: '11px', fontFamily: FONT, color: '#ffcc00', fontStyle: 'bold' },   // 22px screen
-    subtitulo:  { fontSize: '10px', fontFamily: FONT, color: '#7ab8e8' },                       // 20px screen
-    normal:     { fontSize: '9px',  fontFamily: FONT, color: '#d0e8ff' },                       // 18px screen
-    muted:      { fontSize: '8px',  fontFamily: FONT, color: '#5888a8' },                       // 16px screen
-    dim:        { fontSize: '7px',  fontFamily: FONT, color: '#334455' },                       // 14px screen
-    destacado:  { fontSize: '14px', fontFamily: FONT, color: '#ffcc00', fontStyle: 'bold' },   // 28px screen
-    enorme:     { fontSize: '20px', fontFamily: FONT, color: '#ffcc00', fontStyle: 'bold' },   // 40px screen
-    peligro:    { fontSize: '10px', fontFamily: FONT, color: '#ff4455', fontStyle: 'bold' },   // 20px screen
-    exito:      { fontSize: '9px',  fontFamily: FONT, color: '#4cdf80' },                       // 18px screen
-    metricas:   { fontSize: '9px',  fontFamily: FONT, color: '#c0d8f0', lineSpacing: 2 },       // 18px screen
-    cardLabel:  { fontSize: '7px',  fontFamily: FONT, color: '#4a7898' },                       // 14px screen ← user's max
-    cardValue:  { fontSize: '9px',  fontFamily: FONT, color: '#e0f0ff', fontStyle: 'bold' },   // 18px screen
-    sectorTag:  { fontSize: '9px',  fontFamily: FONT, color: '#ffffff', fontStyle: 'bold' },   // 18px screen
+    titulo:    { fontSize: '18px', fontFamily: FONT, color: '#ffcc00', fontStyle: 'bold' },
+    subtitulo: { fontSize: '15px', fontFamily: FONT, color: '#7ab8e8' },
+    normal:    { fontSize: '13px', fontFamily: FONT, color: '#d0e8ff' },
+    muted:     { fontSize: '12px', fontFamily: FONT, color: '#5888a8' },
+    dim:       { fontSize: '11px', fontFamily: FONT, color: '#334455' },
+    destacado: { fontSize: '24px', fontFamily: FONT, color: '#ffcc00', fontStyle: 'bold' },
+    enorme:    { fontSize: '36px', fontFamily: FONT, color: '#ffcc00', fontStyle: 'bold' },
+    peligro:   { fontSize: '15px', fontFamily: FONT, color: '#ff4455', fontStyle: 'bold' },
+    exito:     { fontSize: '13px', fontFamily: FONT, color: '#4cdf80' },
+    metricas:  { fontSize: '13px', fontFamily: FONT, color: '#c0d8f0', lineSpacing: 4 },
+    cardLabel: { fontSize: '11px', fontFamily: FONT, color: '#4a7898' },
+    cardValue: { fontSize: '14px', fontFamily: FONT, color: '#e0f0ff', fontStyle: 'bold' },
+    sectorTag: { fontSize: '13px', fontFamily: FONT, color: '#ffffff', fontStyle: 'bold' },
 } as const;
 
-// ── Color constants (hex numbers) ─────────────────────────────────────────────
+// ── Shared color constants ────────────────────────────────────────────────────
 export const COLOR = {
     BG:          0x08111e,
     CARD_BG:     0x0d1c2e,
     CARD_BG_ALT: 0x0a1520,
     CARD_BORDER: 0x1e3450,
-    HEADER_BG:   0x060e1a,
-    STRIP_BG:    0x060e1a,
+    HEADER_BG:   0x06101a,
+    STRIP_BG:    0x06101a,
 
     ACCEL:       0xe05828,
     SPEED:       0x8050e0,

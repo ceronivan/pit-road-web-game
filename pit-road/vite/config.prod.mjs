@@ -1,4 +1,5 @@
 import { defineConfig } from 'vite';
+import { resolve } from 'path';
 
 const phasermsg = () => {
     return {
@@ -21,6 +22,10 @@ export default defineConfig({
     logLevel: 'warning',
     build: {
         rollupOptions: {
+            input: {
+                main:           resolve(__dirname, '../index.html'),
+                circuitEditor:  resolve(__dirname, '../circuit-editor.html'),
+            },
             output: {
                 manualChunks: {
                     phaser: ['phaser']

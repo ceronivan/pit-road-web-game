@@ -88,6 +88,7 @@ export interface EstadoJuego {
 export interface DatosCarreraScene {
     carro: Carro;
     clima?: EstadoClimatico;
+    circuitoId?: string;   // 'circuito_alfa' (default) | 'circuito_beta'
 }
 
 export interface DatosResultadosScene {
@@ -118,6 +119,7 @@ export interface Segmento {
     radioMetros?:        number;           // solo curvas
     anguloDeg?:          number;           // solo curvas
     bankeoDeg?:          number;           // solo curvas
+    factorDificultadCurva?: number;        // 0–1; governs braking-incident probability (procedural track param)
     marcha:              number;
     tiempoEstimadoSeg:   number;
     modificadores:       ModificadoresSegmento;

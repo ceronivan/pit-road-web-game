@@ -1,63 +1,71 @@
 import type { Scene, GameObjects } from 'phaser';
 
-// ── Circuit geometry constants ────────────────────────────────────────────────
-export const CX_L = 45;   // left curve center x
-export const CX_R = 275;  // right curve center x
-export const CY   = 74;   // center y
-export const R    = 40;   // curve radius (semicircle)
-const TW          = 9;    // track width
+// ── Circuit geometry (canvas 960 × 540) ───────────────────────────────────────
+export const CX_L = 168;   // left curve center x
+export const CX_R = 792;   // right curve center x
+export const CY   = 228;   // center y
+export const R    = 148;   // curve radius
+const TW          = 28;    // track width (±14 from centerline)
 
-const STRAIGHT = CX_R - CX_L;                // 230
-const ARC_LEN  = Math.PI * R;                 // ≈ 125.7
-const TOTAL    = 2 * STRAIGHT + 2 * ARC_LEN; // ≈ 711.4
+const STRAIGHT = CX_R - CX_L;                 // 624
+const ARC_LEN  = Math.PI * R;                  // ≈ 464.9
+const TOTAL    = 2 * STRAIGHT + 2 * ARC_LEN;  // ≈ 2177.8
 
-// Progress fraction (0–1) at the START of each sector
 export const FRAC = {
     s1: 0,
-    s2: STRAIGHT / TOTAL,                    // ≈ 0.323
-    s3: (STRAIGHT + ARC_LEN) / TOTAL,        // ≈ 0.500
-    s4: (2 * STRAIGHT + ARC_LEN) / TOTAL,    // ≈ 0.677 + ...
+    s2: STRAIGHT / TOTAL,
+    s3: (STRAIGHT + ARC_LEN) / TOTAL,
+    s4: (2 * STRAIGHT + ARC_LEN) / TOTAL,
 };
 
 export const SECTOR_COLOR: Record<string, number> = {
-    S1: 0x50c860,   // green  — recta principal
-    S2: 0x5070e0,   // blue   — curva norte
-    S3: 0xe06040,   // orange — recta trasera
-    S4: 0xe0b040,   // amber  — curva sur
+    S1: 0x50c860,
+    S2: 0x5070e0,
+    S3: 0xe06040,
+    S4: 0xe0b040,
 };
 
 const SECTOR_IDS = ['S1', 'S2', 'S3', 'S4'];
 const FONT       = "'Open Sans', sans-serif";
+
+// ── Racing line lateral bands ──────────────────────────────────────────────────
+// band > 0 → outer on straights, inner at apex (late-apex, player)
+// band < 0 → inner on straights, outer at apex (rival defends inside)
+// Separation on straight & at apex = |BAND_PLAYER| + |BAND_RIVAL| = 13 px
+export const BAND_PLAYER =  9;
+export const BAND_RIVAL  = -4;
 
 export class CircuitoRenderer {
     private gfxBase!:     GameObjects.Graphics;
     private gfxSectores!: GameObjects.Graphics;
     private gfxVehiculo!: GameObjects.Graphics;
 
-    constructor(private scene: Scene) {
+    /** Exposes sector fractions with the same shape as CircuitoBetaRenderer.frac */
+    readonly frac = FRAC;
+
+    constructor(scene: Scene) {
         this.gfxBase     = scene.add.graphics();
         this.gfxSectores = scene.add.graphics();
         this.gfxVehiculo = scene.add.graphics();
 
-        // Static "START" label at the meta position
-        scene.add.text(CX_L + 3, CY + R + 4, 'START', {
-            fontSize: '7px',
+        // Static START label at meta position
+        scene.add.text(CX_L + 8, CY + R + 10, 'START', {
+            fontSize: '12px',
             fontFamily: FONT,
             color: '#ffffff',
             fontStyle: 'bold',
         });
     }
 
-    // ── Called whenever the active sector changes (not every frame) ────────────
+    // ── Called when active sector changes ─────────────────────────────────────
     dibujarCircuito(sectorActivo: string) {
         this.gfxBase.clear();
         this.gfxSectores.clear();
 
-        // Outer border / glow
-        this.gfxBase.lineStyle(TW + 8, 0x0e1a2b, 1.0);
+        // Outer glow / border layers
+        this.gfxBase.lineStyle(TW + 12, 0x0a1828, 1.0);
         this.trazarOval(this.gfxBase);
-
-        this.gfxBase.lineStyle(TW + 4, 0x1e3350, 1.0);
+        this.gfxBase.lineStyle(TW + 6, 0x1e3350, 1.0);
         this.trazarOval(this.gfxBase);
 
         // Dark track surface
@@ -67,22 +75,22 @@ export class CircuitoRenderer {
         // Sector color overlays
         SECTOR_IDS.forEach(s => {
             const isActive = s === sectorActivo;
-            this.gfxSectores.lineStyle(TW - 1, SECTOR_COLOR[s], isActive ? 0.92 : 0.20);
+            this.gfxSectores.lineStyle(TW - 2, SECTOR_COLOR[s], isActive ? 0.92 : 0.18);
             this.trazarSegmento(this.gfxSectores, s);
         });
 
-        // Center-line dashes on straights
-        this.gfxBase.fillStyle(0x2a4060, 0.7);
-        const DASH_W = 5, DASH_GAP = 10;
-        for (let x = CX_L + 22; x < CX_R - 15; x += DASH_GAP) {
-            this.gfxBase.fillRect(x, CY + R,     DASH_W, 1);
-            this.gfxBase.fillRect(x, CY - R - 1, DASH_W, 1);
+        // Center dashes on straights
+        this.gfxBase.fillStyle(0x2a4060, 0.6);
+        const DASH_W = 14, DASH_GAP = 28;
+        for (let x = CX_L + 60; x < CX_R - 50; x += DASH_GAP) {
+            this.gfxBase.fillRect(x, CY + R,     DASH_W, 2);
+            this.gfxBase.fillRect(x, CY - R - 2, DASH_W, 2);
         }
 
-        // Meta / start-finish checkered line
-        const mx = CX_L + 2;
+        // Meta (start/finish) checkered line
+        const mx = CX_L + 6;
         const my = CY + R - Math.floor(TW / 2);
-        const CS = 2;
+        const CS = 5;
         for (let row = 0; row < 4; row++) {
             for (let col = 0; col < 2; col++) {
                 this.gfxBase.fillStyle((row + col) % 2 === 0 ? 0xffffff : 0x000000, 0.9);
@@ -92,85 +100,99 @@ export class CircuitoRenderer {
     }
 
     // ── Called every frame from CarreraScene.update() ─────────────────────────
-    actualizarVehiculo(progreso: number, posicion: number) {
+    // playerProg / rivalProg : independent track progress values [0, 1)
+    // playerBand / rivalBand : effective lateral band (may differ from defaults
+    //   during tailing/overtake maneuvers — defaults to the static constants)
+    actualizarVehiculo(
+        playerProg: number, rivalProg: number,
+        playerBand: number = BAND_PLAYER,
+        rivalBand:  number = BAND_RIVAL
+    ) {
         this.gfxVehiculo.clear();
 
-        // Player vehicle (cyan)
-        const p = this.calcularPos(progreso);
-        this.dibujarCarro(p.x, p.y, p.angulo, 0x00ccff, 0x0055aa, 8, 5);
+        // Rival primero (se pinta debajo del jugador)
+        const rv = this.calcularPos(rivalProg, rivalBand);
+        this.dibujarCarro(rv.x, rv.y, rv.angulo, 0xff4422, 0x881100, 10, 5);
 
-        // Single rival at offset derived from position delta
-        const rivalProg = (progreso + 0.47 + (posicion - 1) * 0.06) % 1;
-        const rv = this.calcularPos(rivalProg);
-        this.dibujarCarro(rv.x, rv.y, rv.angulo, 0xff4422, 0x881100, 7, 4);
+        // Jugador encima (siempre azul)
+        const p = this.calcularPos(playerProg, playerBand);
+        this.dibujarCarro(p.x, p.y, p.angulo, 0x00ccff, 0x0055aa, 12, 6);
     }
 
-    // ── Position calculation along circuit (t = 0–1) ──────────────────────────
-    calcularPos(t: number): { x: number; y: number; angulo: number } {
+    // ── Calcula posición con línea de carrera (racing line) ───────────────────
+    // band > 0: outer en rectas → inner en apex (late apex)
+    // band < 0: inner en rectas → outer en apex (anti-late apex / rival)
+    // Fórmula curvas: r = R + band · cos(2π·tl)
+    //   tl=0  → r=R+band (entrada exterior/interior según signo)
+    //   tl=0.5 → r=R-band (apex opuesto)
+    //   tl=1  → r=R+band (salida = misma que entrada → continuidad ✓)
+    calcularPos(t: number, band: number = 0): { x: number; y: number; angulo: number } {
         const { s2: F2, s3: F3, s4: F4 } = FRAC;
         const PI = Math.PI;
 
         if (t < F2) {
-            // S1: bottom straight → moving right
+            // S1: recta inferior, izquierda → derecha
             const tl = t / F2;
-            return { x: CX_L + tl * STRAIGHT, y: CY + R, angulo: 0 };
+            return { x: CX_L + tl * STRAIGHT, y: CY + R + band, angulo: 0 };
         }
+
         if (t < F3) {
-            // S2: right curve (counterclockwise from bottom through right to top)
+            // S2: curva derecha (horaria, de π/2 → -π/2)
             const tl = (t - F2) / (F3 - F2);
-            const θ  = PI / 2 - PI * tl;   // PI/2 → -PI/2
+            const r  = R + band * Math.cos(2 * PI * tl);
+            const θ  = PI / 2 - PI * tl;
             return {
-                x:      CX_R + R * Math.cos(θ),
-                y:      CY   + R * Math.sin(θ),
+                x:      CX_R + r * Math.cos(θ),
+                y:      CY   + r * Math.sin(θ),
                 angulo: Math.atan2(-Math.cos(θ), Math.sin(θ)),
             };
         }
+
         if (t < F4) {
-            // S3: top straight → moving left
+            // S3: recta superior, derecha → izquierda
             const tl = (t - F3) / (F4 - F3);
-            return { x: CX_R - tl * STRAIGHT, y: CY - R, angulo: PI };
+            return { x: CX_R - tl * STRAIGHT, y: CY - R - band, angulo: PI };
         }
-        // S4: left curve (counterclockwise from top through left to bottom)
+
+        // S4: curva izquierda (horaria, de -π/2 → -3π/2)
         const tl = (t - F4) / (1 - F4);
-        const θ  = -PI / 2 - PI * tl;      // -PI/2 → -3PI/2
+        const r  = R + band * Math.cos(2 * PI * tl);
+        const θ  = -PI / 2 - PI * tl;
         return {
-            x:      CX_L + R * Math.cos(θ),
-            y:      CY   + R * Math.sin(θ),
+            x:      CX_L + r * Math.cos(θ),
+            y:      CY   + r * Math.sin(θ),
             angulo: Math.atan2(-Math.cos(θ), Math.sin(θ)),
         };
     }
 
-    // ── Internal helpers ──────────────────────────────────────────────────────
     private dibujarCarro(
         x: number, y: number, angulo: number,
         colorBody: number, colorFront: number,
         w: number, h: number
     ) {
         const g = this.gfxVehiculo;
-        const hw = Math.floor(w / 2);
-        const hh = Math.floor(h / 2);
         g.save();
         g.translateCanvas(x, y);
         g.rotateCanvas(angulo);
-        // Body
+        // Cuerpo principal
         g.fillStyle(colorBody, 1);
-        g.fillRect(-hw, -hh, w - 2, h);
-        // Front accent
+        g.fillRect(-Math.floor(w / 2), -Math.floor(h / 2), w - 3, h);
+        // Frente (dirección de marcha)
         g.fillStyle(colorFront, 1);
-        g.fillRect(hw - 2, -hh, 2, h);
-        // Cockpit highlight
-        g.fillStyle(0xffffff, 0.8);
-        g.fillRect(-1, -1, 2, 2);
+        g.fillRect(Math.floor(w / 2) - 3, -Math.floor(h / 2), 3, h);
+        // Punto de cockpit
+        g.fillStyle(0xffffff, 0.6);
+        g.fillRect(-1, -1, 3, 3);
         g.restore();
     }
 
     private trazarOval(g: GameObjects.Graphics) {
         g.beginPath();
         g.moveTo(CX_L, CY + R);
-        g.lineTo(CX_R, CY + R);                                  // S1 bottom straight
-        g.arc(CX_R, CY, R, Math.PI / 2,  -Math.PI / 2,  true);  // S2 right curve
-        g.lineTo(CX_L, CY - R);                                  // S3 top straight
-        g.arc(CX_L, CY, R, -Math.PI / 2,  Math.PI / 2,  true);  // S4 left curve
+        g.lineTo(CX_R, CY + R);
+        g.arc(CX_R, CY, R, Math.PI / 2,  -Math.PI / 2, true);
+        g.lineTo(CX_L, CY - R);
+        g.arc(CX_L, CY, R, -Math.PI / 2,  Math.PI / 2, true);
         g.closePath();
         g.strokePath();
     }
