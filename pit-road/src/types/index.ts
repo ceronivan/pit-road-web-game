@@ -9,11 +9,10 @@ export type EstadoClimatico =
 export type ArquetipoRival =
     'velocista' | 'resistente' | 'climatero' | 'tecnico' | 'experimental';
 
-// Stats de pieza: contribución cruda a las 3 variables maestras (1–10)
 export interface StatsPieza {
-    acceleration?: number;  // 1–10
-    topSpeed?: number;      // 1–10
-    handling?: number;      // 1–10
+    acceleration?: number;
+    topSpeed?: number;
+    handling?: number;
 }
 
 export interface Pieza {
@@ -26,11 +25,10 @@ export interface Pieza {
     sinergias?: string[];
 }
 
-// Stats del carro: valores finales 0–100 con trade-offs ya aplicados
 export interface StatsCarro {
-    acceleration: number;  // 0–100 — aceleración 0→max
-    topSpeed: number;      // 0–100 — velocidad máxima sostenida
-    handling: number;      // 0–100 — agarre + estabilidad
+    acceleration: number;
+    topSpeed: number;
+    handling: number;
 }
 
 export interface Carro {
@@ -42,21 +40,20 @@ export interface Rival {
     id: string;
     nombre: string;
     arquetipo: ArquetipoRival;
-    nivel: number;           // 1–4
+    nivel: number;
     stats: StatsCarro;
     piezasVisibles: Pieza[];
     piezasOcultas: Pieza[];
 }
 
-// durabilidad y calor son estado de carrera, no stats de rendimiento
 export interface EstadoCarrera {
     vueltaActual: number;
     vueltasTotales: number;
     posicion: number;
-    desgasteLlantas: number;    // 0–100, estado de carrera
-    calorMotor: number;         // 0–100, estado de carrera
-    combustible: number;        // 0–100
-    durabilidadActual: number;  // 0–100
+    desgasteLlantas: number;
+    calorMotor: number;
+    combustible: number;
+    durabilidadActual: number;
     clima: EstadoClimatico;
     enPitStop: boolean;
 }
@@ -87,41 +84,64 @@ export interface EstadoJuego {
 
 export interface DatosCarreraScene {
     carro: Carro;
+    circuitoId?: string;
     clima?: EstadoClimatico;
 }
 
 export interface DatosResultadosScene {
     resultado: ResultadoCarrera;
     estadoCarrera: EstadoCarrera;
+    nombreCircuito: string;
 }
 
 // ─── Circuito ─────────────────────────────────────────────────────────────────
 
-export type TipoSegmento  = 'recta' | 'curva';
+export type TipoComponente = 'recta' | 'curva_abierta' | 'curva_cerrada' | 'chicane' | 'horquilla';
+export type TipoCircuito   = 'paperclip_oval' | 'tecnico' | 'mixto' | 'urbano';
 export type TipoSuperficie = 'asfalto' | 'tierra' | 'nieve' | 'mixto';
+export type TipoSegmento   = 'recta' | 'curva';
+
+// Each element in the componentes[] array of a circuit definition
+export interface ComponenteCircuito {
+    tipo:       TipoComponente;
+    longitud?:  number;   // recta: metros
+    radio?:     number;   // curvas/chicane: radio en metros
+    anguloDeg?: number;   // curva_abierta/cerrada: grados (default 90/180)
+    dir?:       1 | -1;   // 1 = clockwise/right-turn, -1 = counter-clockwise/left-turn
+}
+
+// Circuit definition as stored in circuitos.json
+export interface CircuitoDef {
+    id:              string;
+    nombre:          string;
+    tipo:            TipoCircuito;
+    tipoSuperficie:  TipoSuperficie;
+    vehiculoReferencia: { velocidadPromedioKmh: number; tiempoVueltaSeg: number; };
+    componentes:     ComponenteCircuito[];
+    perfil: {
+        arquetipoBeneficiado: ArquetipoRival;
+        arquetipoPerjudicado: ArquetipoRival;
+    };
+    clima: ModificadoresClima;
+}
 
 export interface ModificadoresSegmento {
-    acceleration: number;   // multiplicador sobre la variable
+    acceleration: number;
     topSpeed:     number;
     handling:     number;
 }
 
 export interface Segmento {
-    id:                  string;           // 'S1' | 'S2' | 'S3' | 'S4'
+    id:                  string;
     nombre:              string;
     tipo:                TipoSegmento;
     longitudMetros:      number;
     velocidadEntradaKmh: number;
     velocidadPuntaKmh:   number;
     velocidadSalidaKmh:  number;
-    velocidadMinimaKmh?: number;           // solo curvas
-    radioMetros?:        number;           // solo curvas
-    anguloDeg?:          number;           // solo curvas
-    bankeoDeg?:          number;           // solo curvas
     marcha:              number;
     tiempoEstimadoSeg:   number;
     modificadores:       ModificadoresSegmento;
-    puntos?:             string[];         // 'meta' | 'speed_trap' | 'drs_zone'
 }
 
 export interface PerfilCircuito {
@@ -139,17 +159,26 @@ export interface ModificadoresClima {
     tormenta:  ModificadoresSegmento;
 }
 
-export interface Circuito {
+// A single point along the pre-computed circuit path
+export interface PuntoRuta {
+    x:        number;
+    y:        number;
+    angulo:   number;   // heading in radians
+    distAcum: number;   // normalized cumulative distance [0, 1]
+    compIdx:  number;   // index of the component this point belongs to
+}
+
+// Fully computed circuit — used by renderer and simulator
+export interface CircuitoComputado {
     id:              string;
     nombre:          string;
-    tipo:            'paperclip_oval' | 'tecnico' | 'mixto' | 'urbano';
-    longitudMetros:  number;
+    tipo:            TipoCircuito;
     tipoSuperficie:  TipoSuperficie;
-    vehiculoReferencia: {
-        velocidadPromedioKmh: number;
-        tiempoVueltaSeg:      number;
-    };
-    sectores: Segmento[];
-    perfil:   PerfilCircuito;
-    clima:    ModificadoresClima;
+    vehiculoReferencia: { velocidadPromedioKmh: number; tiempoVueltaSeg: number; };
+    sectores:        Segmento[];
+    perfil:          PerfilCircuito;
+    clima:           ModificadoresClima;
+    puntos:          PuntoRuta[];
+    fracComienzo:    number[];   // t [0,1] at which each sector starts
+    longitudTotal:   number;    // total path length in world units
 }

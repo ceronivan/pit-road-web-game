@@ -1,10 +1,9 @@
 import type {
     StatsCarro, EstadoCarrera, EstadoClimatico,
     ResultadoVuelta, ResultadoCarrera, Rival,
-    CategoriaPieza, Pieza, Circuito, Segmento,
+    CategoriaPieza, Pieza, CircuitoComputado, Segmento,
     ModificadoresSegmento
 } from '../types';
-import circuitosData from '../data/circuitos.json';
 
 // ─── Pesos de contribución: categoría → variable maestra ─────────────────────
 const PESOS: Record<CategoriaPieza, Partial<Record<keyof StatsCarro, number>>> = {
@@ -18,21 +17,14 @@ const PESOS: Record<CategoriaPieza, Partial<Record<keyof StatsCarro, number>>> =
 
 const PUNTOS_POR_POSICION = [15, 12, 10, 7, 4, 1];
 
-// Los climas extendidos (nublado, polvo) no tienen entrada propia en ModificadoresClima
-// del circuito — los mapeamos al modificador más cercano.
-const CLIMA_FALLBACK: Record<EstadoClimatico, keyof Circuito['clima']> = {
+const CLIMA_FALLBACK: Record<EstadoClimatico, keyof CircuitoComputado['clima']> = {
     despejado: 'despejado',
-    nublado:   'despejado',   // condición muy parecida a seco
+    nublado:   'despejado',
     lluvia:    'lluvia',
     nieve:     'nieve',
     tormenta:  'tormenta',
-    polvo:     'lluvia',      // penalización similar a lluvia
+    polvo:     'lluvia',
 };
-
-// ─── Carga de circuito ────────────────────────────────────────────────────────
-export function getCircuito(id: string): Circuito {
-    return (circuitosData as Circuito[]).find(c => c.id === id) as Circuito;
-}
 
 // ─── Trade-offs: ningún carro puede ser perfecto ──────────────────────────────
 export function aplicarTradeoffs(stats: StatsCarro): StatsCarro {
@@ -74,7 +66,7 @@ export function calcularRendimientoEnSegmento(
     stats: StatsCarro,
     segmento: Segmento,
     clima: EstadoClimatico,
-    circuito: Circuito
+    circuito: CircuitoComputado
 ): number {
     const mod: ModificadoresSegmento      = segmento.modificadores;
     const climaMod: ModificadoresSegmento = circuito.clima[CLIMA_FALLBACK[clima]];
@@ -90,11 +82,11 @@ export function calcularRendimientoEnSegmento(
     ));
 }
 
-// ─── Rendimiento total de una vuelta (promedio de los 4 sectores) ─────────────
+// ─── Rendimiento total de una vuelta (promedio sobre todos los sectores) ──────
 export function calcularRendimientoVuelta(
     stats: StatsCarro,
     clima: EstadoClimatico,
-    circuito: Circuito
+    circuito: CircuitoComputado
 ): number {
     const rendimientos = circuito.sectores.map(seg =>
         calcularRendimientoEnSegmento(stats, seg, clima, circuito)
@@ -102,7 +94,7 @@ export function calcularRendimientoVuelta(
     return rendimientos.reduce((a, b) => a + b, 0) / rendimientos.length;
 }
 
-// ─── Rendimiento base (sin circuito) — usado en TallerScene y tests ──────────
+// ─── Rendimiento base (sin circuito) — usado en TallerScene ──────────────────
 export function calcularRendimiento(stats: StatsCarro): number {
     return (
         stats.acceleration * 0.35 +
@@ -116,7 +108,7 @@ export function simularVuelta(
     estado: EstadoCarrera,
     statsJugador: StatsCarro,
     rivales: Rival[],
-    circuito: Circuito
+    circuito: CircuitoComputado
 ): ResultadoVuelta {
     const factorDesgaste = 1 - (estado.desgasteLlantas / 200);
     const factorCalor    = 1 - (Math.max(0, estado.calorMotor - 70) / 100);

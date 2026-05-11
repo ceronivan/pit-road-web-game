@@ -5,8 +5,8 @@ import { ResultadosScene } from './scenes/ResultadosScene';
 
 const config: Types.Core.GameConfig = {
     type: AUTO,
-    width: 320,
-    height: 180,
+    width: 480,
+    height: 270,
     zoom: 2,
     pixelArt: false,
     roundPixels: false,
