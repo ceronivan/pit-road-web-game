@@ -27,20 +27,20 @@
     "nombre": "Circuito Beta",
     "tipo": "tecnico",
     "tipoSuperficie": "asfalto",
-    "vehiculoReferencia": { "velocidadPromedioKmh": 82, "tiempoVueltaSeg": 78 },
+    "vehiculoReferencia": { "velocidadPromedioKmh": 85, "tiempoVueltaSeg": 82 },
     "componentes": [
-      { "tipo": "recta",         "longitud": 200 },
-      { "tipo": "curva_abierta", "radio": 55, "anguloDeg": 90, "dir": 1 },
-      { "tipo": "recta",         "longitud": 80 },
-      { "tipo": "chicane",       "radio": 22, "anguloDeg": 55, "dir": 1 },
-      { "tipo": "recta",         "longitud": 50 },
-      { "tipo": "curva_abierta", "radio": 40, "anguloDeg": 90, "dir": 1 },
-      { "tipo": "recta",         "longitud": 180 },
-      { "tipo": "curva_abierta", "radio": 55, "anguloDeg": 90, "dir": 1 },
-      { "tipo": "recta",         "longitud": 80 },
-      { "tipo": "chicane",       "radio": 22, "anguloDeg": 55, "dir": -1 },
-      { "tipo": "recta",         "longitud": 50 },
-      { "tipo": "curva_abierta", "radio": 40, "anguloDeg": 90, "dir": 1 }
+      { "tipo": "recta",         "longitud": 400                            },
+      { "tipo": "curva_cerrada", "radio": 25,  "anguloDeg": 100, "dir":  1 },
+      { "tipo": "curva_abierta", "radio": 45,  "anguloDeg":  80, "dir":  1 },
+      { "tipo": "recta",         "longitud": 140                            },
+      { "tipo": "chicane",       "radio": 22,  "anguloDeg":  55, "dir":  1 },
+      { "tipo": "recta",         "longitud": 120                            },
+      { "tipo": "curva_abierta", "radio": 55,  "anguloDeg":  70, "dir": -1 },
+      { "tipo": "recta",         "longitud":  60                            },
+      { "tipo": "horquilla",     "radio": 40,                    "dir":  1 },
+      { "tipo": "recta",         "longitud":  80                            },
+      { "tipo": "curva_abierta", "radio": 55,  "anguloDeg":  70, "dir":  1 },
+      { "tipo": "recta",         "longitud":  80                            }
     ],
     "perfil": {
       "arquetipoBeneficiado": "tecnico",
@@ -48,9 +48,9 @@
     },
     "clima": {
       "despejado": { "acceleration": 1.00, "topSpeed": 1.00, "handling": 1.00 },
-      "lluvia":    { "acceleration": 0.85, "topSpeed": 0.75, "handling": 0.72 },
-      "nieve":     { "acceleration": 0.70, "topSpeed": 0.65, "handling": 0.55 },
-      "tormenta":  { "acceleration": 0.75, "topSpeed": 0.68, "handling": 0.62 }
+      "lluvia":    { "acceleration": 0.85, "topSpeed": 0.75, "handling": 0.68 },
+      "nieve":     { "acceleration": 0.70, "topSpeed": 0.65, "handling": 0.50 },
+      "tormenta":  { "acceleration": 0.75, "topSpeed": 0.68, "handling": 0.58 }
     }
   }
 ]
