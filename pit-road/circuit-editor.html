@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+    <title>Circuit Editor — Pit Road</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg:        #060d14;
+            --surface:   #0d1a26;
+            --border:    #1a2e44;
+            --accent:    #5070e0;
+            --text:      #d0e8ff;
+            --muted:     #4a6a88;
+            --font:      'Open Sans', sans-serif;
+        }
+
+        body {
+            background: var(--bg);
+            color:      var(--text);
+            font-family: var(--font);
+            min-height: 100vh;
+        }
+
+        /* ── Header ─────────────────────────────────────────────────────── */
+        header {
+            background: #0a1520;
+            border-bottom: 1px solid var(--border);
+            padding: 14px 24px;
+            display: flex;
+            align-items: center;
+            gap: 24px;
+        }
+        header h1 {
+            font-size: 16px;
+            font-weight: 700;
+            letter-spacing: .08em;
+            color: var(--text);
+        }
+        header .back {
+            font-size: 12px;
+            color: var(--muted);
+            text-decoration: none;
+            border: 1px solid var(--border);
+            padding: 4px 10px;
+            border-radius: 3px;
+        }
+        header .back:hover { color: var(--text); border-color: var(--accent); }
+
+        /* ── Controls strip ─────────────────────────────────────────────── */
+        .controls {
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 10px 24px;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+        .controls label { font-size: 12px; color: var(--muted); }
+        .controls input[type=range] {
+            width: 160px;
+            accent-color: var(--accent);
+        }
+        #tile-size-value {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--accent);
+            min-width: 38px;
+        }
+        .badge {
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: .06em;
+            background: #1a2e44;
+            color: var(--muted);
+            padding: 3px 8px;
+            border-radius: 3px;
+            border: 1px solid var(--border);
+        }
+
+        /* ── Main layout ────────────────────────────────────────────────── */
+        main { padding: 32px 24px; max-width: 1200px; }
+
+        /* ── Section headers ─────────────────────────────────────────────── */
+        h2 {
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: .1em;
+            color: var(--muted);
+            text-transform: uppercase;
+            margin-bottom: 14px;
+        }
+        h3 {
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: .08em;
+            color: var(--muted);
+            text-transform: uppercase;
+            margin-bottom: 12px;
+        }
+
+        /* ── Circuits ────────────────────────────────────────────────────── */
+        #circuits { display: flex; flex-wrap: wrap; gap: 40px; margin-bottom: 48px; }
+
+        .circuit-section {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 20px;
+        }
+        .circuit-section svg {
+            display: block;
+            border-radius: 3px;
+            box-shadow: 0 4px 24px rgba(0,0,0,.5);
+        }
+
+        /* ── Catalog ─────────────────────────────────────────────────────── */
+        #catalog-section h3 { margin-bottom: 16px; }
+
+        #catalog {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .tile-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 5px;
+            padding: 8px 10px 10px;
+            text-align: center;
+            transition: border-color .15s;
+        }
+        .tile-card:hover { border-color: var(--accent); }
+        .tile-card svg { display: block; border-radius: 3px; }
+        .tile-label {
+            font-size: 10px;
+            color: var(--muted);
+            margin-top: 6px;
+            line-height: 1.4;
+        }
+        .tile-label strong {
+            display: block;
+            font-size: 11px;
+            color: var(--text);
+            font-weight: 700;
+            letter-spacing: .04em;
+            margin-bottom: 2px;
+        }
+
+        /* ── Divider ─────────────────────────────────────────────────────── */
+        .divider {
+            border: none;
+            border-top: 1px solid var(--border);
+            margin: 0 0 40px;
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <a class="back" href="/">← Pit Road</a>
+        <h1>CIRCUIT EDITOR</h1>
+        <span class="badge">FASE 1 — NÚCLEO</span>
+    </header>
+
+    <div class="controls">
+        <label for="tile-size-slider">TILE SIZE</label>
+        <input id="tile-size-slider" type="range" min="48" max="128" step="8" value="80">
+        <span id="tile-size-value">80px</span>
+    </div>
+
+    <main>
+        <!-- 1.3 — Circuitos de referencia -->
+        <h2>Circuitos de referencia</h2>
+        <div id="circuits"></div>
+
+        <hr class="divider">
+
+        <!-- Catálogo de tiles -->
+        <section id="catalog-section">
+            <h3>Catálogo de tiles (todos los tipos)</h3>
+            <div id="catalog"></div>
+        </section>
+    </main>
+
+    <script type="module" src="/src/circuit-editor/main.ts"></script>
+</body>
+</html>
