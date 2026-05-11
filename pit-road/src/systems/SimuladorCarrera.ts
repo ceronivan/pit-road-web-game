@@ -61,7 +61,7 @@ export function calcularStatsCarro(piezas: Partial<Record<CategoriaPieza, Pieza>
     return aplicarTradeoffs(normalizado);
 }
 
-// ─── Rendimiento en un segmento específico ────────────────────────────────────
+// ─── Rendimiento teórico en un segmento (sin error humano) ────────────────────
 export function calcularRendimientoEnSegmento(
     stats: StatsCarro,
     segmento: Segmento,
@@ -82,7 +82,7 @@ export function calcularRendimientoEnSegmento(
     ));
 }
 
-// ─── Rendimiento total de una vuelta (promedio sobre todos los sectores) ──────
+// ─── Rendimiento teórico de vuelta completa — usado en TallerScene ────────────
 export function calcularRendimientoVuelta(
     stats: StatsCarro,
     clima: EstadoClimatico,
@@ -103,6 +103,129 @@ export function calcularRendimiento(stats: StatsCarro): number {
     );
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// MODELO DE EJECUCIÓN HUMANA — línea de carrera con margen de error
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Distribución gaussiana aproximada por el teorema del límite central (n=6).
+// Sigma=1 → 68% de valores en [-1, +1], 95% en [-2, +2].
+function gauss(sigma: number): number {
+    let s = 0;
+    for (let i = 0; i < 6; i++) s += Math.random() - 0.5;
+    return (s / 0.707) * sigma; // 0.707 ≈ std de la suma de 6 uniformes [-0.5, 0.5]
+}
+
+// Calcula la desviación estándar (σ) del error de ejecución para un segmento.
+// Factores: tipo de segmento, stats relevantes, clima, desgaste de llantas.
+function sigmaEjecucion(
+    stats: StatsCarro,
+    seg: Segmento,
+    clima: EstadoClimatico,
+    circuito: CircuitoComputado,
+    desgaste: number,
+): number {
+    const climaMod = circuito.clima[CLIMA_FALLBACK[clima]];
+
+    let sigmaBase: number;
+    let statClave: number; // el stat más relevante para este tipo de segmento
+
+    if (seg.tipo === 'recta') {
+        // Rectas: el error principal viene del punto de frenada (acceleration)
+        sigmaBase = 2.2;
+        statClave = stats.acceleration;
+        // Rectas rápidas (topSpeed mod > 1) amplifican el error de frenada
+        sigmaBase *= (0.65 + seg.modificadores.topSpeed * 0.45);
+        // Lluvia/nieve dificultan la frenada enormemente
+        sigmaBase *= (2.0 - climaMod.acceleration);
+    } else {
+        // Curvas: 3 fuentes de error — frenada, apex, salida
+        sigmaBase = 4.8;
+        // Handling domina el apex y trail-braking; acceleration domina la salida
+        statClave = stats.handling * 0.60 + stats.acceleration * 0.40;
+        // Curvas cerradas (topSpeed mod bajo) tienen más margen para error
+        sigmaBase *= Math.max(1.0, 2.3 - seg.modificadores.topSpeed);
+        sigmaBase  = Math.min(sigmaBase, 12.0);
+        // El clima tiene impacto enorme en el grip lateral
+        sigmaBase *= (2.0 - climaMod.handling);
+    }
+
+    // Mejor stat → ejecución más consistente → σ menor
+    // stat=100 → factor=1.0 (mínimo), stat=0 → factor=1.8 (máximo ruido)
+    const factorHabilidad = 1.0 + (1.0 - statClave / 100) * 0.80;
+
+    // Desgaste de llantas → menor agarre → más varianza (especialmente en curvas)
+    const factorDesgaste = 1.0 + (desgaste / 100) * (seg.tipo === 'curva' ? 0.60 : 0.18);
+
+    return Math.min(14.0, Math.max(1.2, sigmaBase * factorHabilidad * factorDesgaste));
+}
+
+// Modela la línea de carrera en fases según el diagrama (frenada→apex→salida).
+// Devuelve el rendimiento real ejecutado (con errores humanos aplicados).
+// calidadVuelta: factor global de la vuelta (buena/mala vuelta del piloto).
+function ejecutarSegmento(
+    stats: StatsCarro,
+    seg: Segmento,
+    clima: EstadoClimatico,
+    circuito: CircuitoComputado,
+    desgaste: number,
+    calidadVuelta: number,
+): number {
+    const base  = calcularRendimientoEnSegmento(stats, seg, clima, circuito);
+    const sigma = sigmaEjecucion(stats, seg, clima, circuito, desgaste);
+
+    let errorEjecucion: number;
+
+    if (seg.tipo === 'curva') {
+        // ── Fase 1: Frenada / Braking zone ────────────────────────────────────
+        // acceleration define qué tan tarde se puede frenar y con qué precisión.
+        // Un error en frenada arruina las fases siguientes (carry-over del 35%).
+        const eFreno = gauss(sigma * 0.40);
+
+        // ── Fase 2: Apex / Neutral balance / Trail braking ────────────────────
+        // handling define si el piloto sigue la línea ideal al vértice.
+        // El error de frenada se arrastra parcialmente (no puedes corregir del todo).
+        const carryover = eFreno * 0.35;
+        const eApex = gauss(sigma * 0.35) + carryover;
+
+        // ── Fase 3: Transición + Aceleración de salida ────────────────────────
+        // acceleration + handling juntos determinan cuándo se puede pisar el gas.
+        const eSalida = gauss(sigma * 0.28);
+
+        // Peso de cada fase: frenada y apex son más críticas que la salida
+        errorEjecucion = eFreno * 0.35 + eApex * 0.40 + eSalida * 0.25;
+    } else {
+        // ── Recta: velocidad de entrada + punta + frenada al final ────────────
+        // La velocidad de entrada depende de qué tan bien se ejecutó la curva anterior.
+        const eEntrada = gauss(sigma * 0.50);
+        const eVelMax  = gauss(sigma * 0.20);
+        errorEjecucion = eEntrada * 0.60 + eVelMax * 0.40;
+    }
+
+    // Bias negativo: los pilotos rara vez alcanzan el máximo teórico
+    const sesgo = -sigma * 0.10;
+
+    // calidadVuelta pondera el error global de la vuelta en este segmento
+    const rendimiento = base + errorEjecucion * (1.0 + calidadVuelta * 0.3) + sesgo;
+    return Math.min(100, Math.max(0, rendimiento));
+}
+
+// Simula una vuelta completa con ejecución humana realista.
+function simularEjecucionVuelta(
+    stats: StatsCarro,
+    clima: EstadoClimatico,
+    circuito: CircuitoComputado,
+    desgaste: number,
+): number {
+    // Una vuelta tiene un factor de calidad global (buena o mala vuelta del piloto).
+    // Sigma=2.5 → la mayoría de vueltas ±2.5 puntos respecto al promedio del piloto.
+    const calidadVuelta = gauss(2.5);
+
+    const ejecuciones = circuito.sectores.map(seg =>
+        ejecutarSegmento(stats, seg, clima, circuito, desgaste, calidadVuelta)
+    );
+    return ejecuciones.reduce((a, b) => a + b, 0) / ejecuciones.length;
+}
+
 // ─── Simula una vuelta usando el circuito activo ──────────────────────────────
 export function simularVuelta(
     estado: EstadoCarrera,
@@ -112,21 +235,33 @@ export function simularVuelta(
 ): ResultadoVuelta {
     const factorDesgaste = 1 - (estado.desgasteLlantas / 200);
     const factorCalor    = 1 - (Math.max(0, estado.calorMotor - 70) / 100);
-    const rendimiento    = calcularRendimientoVuelta(statsJugador, estado.clima, circuito)
-                           * factorDesgaste * factorCalor;
 
-    const rendimientosRivales = rivales.map(r =>
-        calcularRendimientoVuelta(r.stats, estado.clima, circuito) + (Math.random() * 10 - 5)
-    );
+    // Jugador: ejecución con error humano real en cada fase de la curva
+    const rendimiento = simularEjecucionVuelta(
+        statsJugador, estado.clima, circuito, estado.desgasteLlantas,
+    ) * factorDesgaste * factorCalor;
+
+    // Rivales: mismo modelo de ejecución, con desgaste de llantas variado
+    // (cada rival está en una etapa distinta de su estrategia de pits)
+    const rendimientosRivales = rivales.map(r => {
+        const desgasteRival = 8 + Math.random() * 35;
+        return simularEjecucionVuelta(r.stats, estado.clima, circuito, desgasteRival);
+    });
+
     const posicion = rendimientosRivales.filter(r => r > rendimiento).length + 1;
+
+    // Desgaste y calor: curvas aumentan el desgaste de llantas más que las rectas
+    const fracCurvas = circuito.sectores.filter(s => s.tipo === 'curva').length
+                     / Math.max(1, circuito.sectores.length);
+    const desgasteExtra = fracCurvas * 1.5;
 
     return {
         rendimiento,
         posicion,
-        desgasteLlantas:   Math.min(100, estado.desgasteLlantas  + (3 + Math.random() * 2)),
-        calorMotor:        Math.min(100, estado.calorMotor        + (2 + Math.random() * 3)),
-        combustible:       Math.max(0,   estado.combustible       - (4 + Math.random() * 1)),
-        durabilidadActual: Math.max(0,   estado.durabilidadActual - (1 + Math.random() * 1.5)),
+        desgasteLlantas:   Math.min(100, estado.desgasteLlantas  + (2.5 + Math.random() * 2   + desgasteExtra)),
+        calorMotor:        Math.min(100, estado.calorMotor        + (2   + Math.random() * 3)),
+        combustible:       Math.max(0,   estado.combustible       - (4   + Math.random() * 1)),
+        durabilidadActual: Math.max(0,   estado.durabilidadActual - (1   + Math.random() * 1.5)),
     };
 }
 
